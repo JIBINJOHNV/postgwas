@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""
+postgwas — unified CLI entry point for all PostGWAS modules.
+
+Usage examples:
+  postgwas harmonisation --help
+  postgwas finemap direct --help
+  postgwas pops pipeline ...
+"""
+
+import sys
+
+# Import submodule CLI entrypoints
+from postgwas.harmonisation.cli import main as harmonisation_main
+from postgwas.finemap.cli import main as finemap_main
+from postgwas.flames.cli import main as flames_main
+from postgwas.pops.cli import main as pops_main
+from postgwas.qc_summary.cli import main as qc_main
+from postgwas.gene_assoc.cli import main as magma_main
+from postgwas.magmacovar.cli import main as magmacovar_main
+from postgwas.annot_ldblock.cli import main as annot_ldblock_main
+from postgwas.ld_clump.cli import main as ld_clump_main
+from postgwas.formatter.cli import main as formatter_main
+from postgwas.sumstat_filter.cli import main as sumstat_filter_main
+from postgwas.manhattan.cli import main as manhattan_main
+from postgwas.h2_rg.cli import main as heritability_main
+from postgwas.imputation.cli import main as imputation_main
+# ---------------------------------------------------------------------
+# Module registry: command name → (main_function, short_description)
+# ---------------------------------------------------------------------
+MODULES = {
+    "annot_ldblock": (
+        annot_ldblock_main,
+        "Run LD-block annotation module",
+    ),
+    "finemap": (
+        finemap_main,
+        "Run fine-mapping pipeline (SuSiE/FINEMAP)",
+    ),
+    "flames": (
+        flames_main,
+        "Run FLAMES effector-gene pipeline",
+    ),
+    "formatter": (
+        formatter_main,
+        "Run formatting module for MAGMA/PoPS inputs",
+    ),
+    "harmonisation": (
+        harmonisation_main,
+        "Run harmonisation pipeline",
+    ),
+    "heritability": (
+        heritability_main,
+        "Run heritability estimation (LDSC)",
+    ),
+    "imputation": (
+        imputation_main,
+        "Run summary-statistic imputation module",
+    ),
+    "ld_clump": (
+        ld_clump_main,
+        "Run LD clumping and pruning module",
+    ),
+    "magma": (
+        magma_main,
+        "Run MAGMA gene/pathway analysis",
+    ),
+    "magmacovar": (
+        magmacovar_main,
+        "Run MAGMA gene-property (covariate) model",
+    ),
+    "manhattan": (
+        manhattan_main,
+        "Run Manhattan/QQ plotting module",
+    ),
+    "pops": (
+        pops_main,
+        "Run PoPS gene-prioritisation module",
+    ),
+    "qc": (
+        qc_main,
+        "Run QC summary module",
+    ),
+    "sumstat_filter": (
+        sumstat_filter_main,
+        "Run summary-statistics filtering module",
+    ),
+}
+
+def print_global_help(prog: str = "postgwas") -> None:
+    """Print top-level help for the postgwas launcher."""
+    print(f"usage: {prog} <module> [<args>]\n")
+    print("PostGWAS — Unified toolkit for post-GWAS analyses.\n")
+    print("Available modules:")
+    for name, (_, desc) in MODULES.items():
+        print(f"  {name:15s} {desc}")
+    print("\nUse:")
+    print("  postgwas <module> --help")
+    print("to see options for a specific module.")
+
+
+def main():
+    argv = sys.argv
+    prog = argv[0]
+
+    # No subcommand or explicit -h/--help → show global help
+    if len(argv) == 1 or argv[1] in ("-h", "--help"):
+        print_global_help(prog)
+        sys.exit(0)
+
+    cmd = argv[1]
+
+    # Unknown module name
+    if cmd not in MODULES:
+        print(f"{prog}: error: unknown module '{cmd}'\n")
+        print_global_help(prog)
+        sys.exit(1)
+
+    module_main, _ = MODULES[cmd]
+    sys.argv = [f"{prog}-{cmd}"] + argv[2:]
+    return module_main()
+
+
+
+if __name__ == "__main__":
+    main()

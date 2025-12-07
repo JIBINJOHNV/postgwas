@@ -1,0 +1,63 @@
+import sys
+
+def create_magma_inputs(args):
+    """Handler for MAGMA conversion."""
+    try:
+        from postgwas.formatter.to_magma import vcf_to_magma
+        magma_inputs=vcf_to_magma(
+            sumstat_vcf=args.vcf,
+            output_folder=args.outdir,
+            sample_name=args.sample_id
+        )
+    except ImportError:
+        print("❌ Error: postgwas.formatter.to_magma module not found.", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Error during MAGMA conversion: {e}", file=sys.stderr)
+        sys.exit(1)
+    return magma_inputs
+
+def create_finemap_inputs(args):
+    """Handler for FINEMAP conversion (Placeholder)."""
+    try:
+        from postgwas.formatter.to_finemap import vcf_to_finemap
+        finemap_inputs=vcf_to_finemap(
+            sumstat_vcf=args.vcf, 
+            output_folder=args.outdir,
+            sample_name=args.sample_id
+            )
+    except Exception as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    return(finemap_inputs)
+
+
+def create_ldpred_inputs(args):
+    """Handler for FINEMAP conversion (Placeholder)."""
+    try:
+        from postgwas.formatter.to_ldpred import vcf_to_ldpred
+        finemap_inputs=vcf_to_ldpred(
+            sumstat_vcf=args.vcf, 
+            output_folder=args.outdir,
+            sample_name=args.sample_id
+            )
+    except Exception as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    return(finemap_inputs)
+
+
+
+def create_ldsc_inputs(args):
+    """Handler for ldsc conversion (Placeholder)."""
+    try:
+        from postgwas.formatter.to_ldsc import vcf_to_ldsc
+        ldsc_inputs=vcf_to_ldsc(
+            sumstat_vcf=args.vcf, 
+            output_folder=args.outdir,
+            sample_name=args.sample_id
+            )
+    except Exception as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    return(ldsc_inputs)

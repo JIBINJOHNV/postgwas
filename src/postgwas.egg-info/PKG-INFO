@@ -1,0 +1,7 @@
+Metadata-Version: 2.1
+Name: postgwas
+Version: 0.1.0
+Summary: Post-GWAS analysis toolkit
+Author: Jibin John
+Requires-Python: >=3.8
+License-File: LICENSE
