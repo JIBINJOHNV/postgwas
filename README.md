@@ -44,13 +44,6 @@ Display help for any module:
 postgwas <module> --help
 
 docker run --platform=linux/amd64 -it jibin/postgwas:1.0 postgwas finemap --help
-docker run --platform=linux/amd64 -it jibin/postgwas:1.0 postgwas pipeline --modules flames --help
-docker run --platform=linux/amd64 -it jibin/postgwas:1.0 postgwas pipeline --modules flames --apply-filter --apply-imputation --help
-
-```
-
-```text
-/var/folders/rl/w43l6j1j5_s67l6k8gn5hlqm0000gp/T/mdlab/main: line 7: postgwas: command not found
 ```
 
 Example:
@@ -59,18 +52,12 @@ Example:
 postgwas finemap --help
 ```
 
-```text
-/var/folders/rl/w43l6j1j5_s67l6k8gn5hlqm0000gp/T/mdlab/main: line 7: postgwas: command not found
-```
-
 ## Pipeline Usage
 
 ```sh
 postgwas pipeline --modules finemap
-```
+docker run --platform=linux/amd64 -it jibin/postgwas:1.0 postgwas pipeline --modules flames --help
 
-```text
-/var/folders/rl/w43l6j1j5_s67l6k8gn5hlqm0000gp/T/mdlab/main: line 7: postgwas: command not found
 ```
 
 Optional flags:
@@ -85,11 +72,6 @@ Example:
 ```sh
 postgwas pipeline --modules finemap --apply-filter --apply-imputation
 docker run --platform=linux/amd64 -it jibin/postgwas:1.0 postgwas pipeline --modules flames --apply-filter --apply-imputation --help
-
-```
-
-```text
-/var/folders/rl/w43l6j1j5_s67l6k8gn5hlqm0000gp/T/mdlab/main: line 7: postgwas: command not found
 ```
 
 ## Input Requirements
@@ -107,19 +89,10 @@ cd postgwas
 pip install -e .
 ```
 
-```text
-Cloning into 'postgwas'...
-/var/folders/rl/w43l6j1j5_s67l6k8gn5hlqm0000gp/T/mdlab/main: line 9: pip: command not found
-```
-
 Or install directly from GitHub:
 
 ```sh
 pip install -U git+https://github.com/JIBINJOHNV/postgwas.git
-```
-
-```text
-/var/folders/rl/w43l6j1j5_s67l6k8gn5hlqm0000gp/T/mdlab/main: line 7: pip: command not found
 ```
 
 ## Project Structure
