@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-postgwas = "postgwas.main:cli"  # Assumes src/postgwas/main.py has def cli(): ... (update if different)
+postgwas = "postgwas.__main__:main"  # Assumes src/postgwas/main.py has def cli(): ... (update if different)
 
 [tool.setuptools.packages.find]
 where = ["src"]  # Look for packages under src/
