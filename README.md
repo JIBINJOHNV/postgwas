@@ -36,8 +36,6 @@ Display list of all availble module:
 ```sh
 postgwas --help
 docker run --platform=linux/amd64 -it jibin/postgwas:1.0 postgwas --help
-
-
 ```
 
 Display help for any module:
