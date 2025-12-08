@@ -8,6 +8,7 @@ logs/
 # Ignore large raw data files (add if exists)
 data/
 resource_file_preparation/
+resourse_preparation_installation/
 
 # Ignore helper scripts if they should not be versioned
 installation_comans.sh
