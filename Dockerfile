@@ -1,50 +1,44 @@
-# ===============================
-# Base Image
-# ===============================
-FROM mambaorg/micromamba:1.5.1
+FROM mambaorg/micromamba:1.4.2
 
-# Switch to root to install system packages
+# ----------------------------------------
+# Create a user manually (fixes your error)
+# ----------------------------------------
 USER root
+RUN useradd -m pguser
 
-# Install compiler tools required for vgraph
+# System-level build tools
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc g++ make && \
+    apt-get install -y --no-install-recommends gcc g++ make git && \
     rm -rf /var/lib/apt/lists/*
 
-# Switch back to micromamba's user (correct user = mamba)
-USER mamba
-
-# ===============================
-# Conda/Mamba Environment
-# ===============================
-
-ARG MAMBA_ENV_NAME=postgwas
-
-# Copy environment.yml with proper permissions
+# Copy environment file
 COPY environment.yml /tmp/environment.yml
-RUN chown mamba:mamba /tmp/environment.yml
 
-# Create conda environment
-RUN micromamba create -y -n ${MAMBA_ENV_NAME} -f /tmp/environment.yml && \
+# ----------------------------------------
+# Create environment as root (safe)
+# ----------------------------------------
+RUN micromamba create -y -n postgwas -f /tmp/environment.yml && \
     micromamba clean --all --yes
 
-# Activate environment for all following RUN commands
+# Use environment for all future RUN commands
 SHELL ["micromamba", "run", "-n", "postgwas", "/bin/bash", "-c"]
 
-# ===============================
-# Install PostGWAS + MAGMA
-# ===============================
-
+# ----------------------------------------
+# Install your package
+# ----------------------------------------
 WORKDIR /opt/postgwas
 COPY . /opt/postgwas
 
-# Install MAGMA (Linux static binary included inside repo)
+# Install MAGMA
 RUN chmod +x magma/magma && \
-    mv magma/magma /usr/local/bin/magma && \
-    mv magma/aux /usr/local/bin/aux
+    mv magma/magma /usr/local/bin/magma
 
-# Install postgwas package
+# Install postgwas
 RUN pip install -e .
 
-# Default command
+# ----------------------------------------
+# Switch to clean non-root user for runtime
+# ----------------------------------------
+USER pguser
+
 CMD ["micromamba", "run", "-n", "postgwas", "postgwas", "--help"]
