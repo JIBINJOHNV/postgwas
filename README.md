@@ -35,7 +35,7 @@ Display list of all availble module:
 
 ```sh
 postgwas --help
-docker run --platform=linux/amd64 -it jibin/postgwas:1.0 postgwas --help
+docker run --platform=linux/amd64 -it jibinjv/postgwas:1.0 postgwas --help
 ```
 
 Display help for any module:
@@ -43,7 +43,7 @@ Display help for any module:
 ```sh
 postgwas <module> --help
 
-docker run --platform=linux/amd64 -it jibin/postgwas:1.0 postgwas finemap --help
+docker run --platform=linux/amd64 -it jibinjv/postgwas:1.0 postgwas finemap --help
 ```
 
 Example:
@@ -56,7 +56,7 @@ postgwas finemap --help
 
 ```sh
 postgwas pipeline --modules finemap
-docker run --platform=linux/amd64 -it jibin/postgwas:1.0 postgwas pipeline --modules flames --help
+docker run --platform=linux/amd64 -it jibinjv/postgwas:1.0 postgwas pipeline --modules flames --help
 
 ```
 
@@ -71,7 +71,7 @@ Example:
 
 ```sh
 postgwas pipeline --modules finemap --apply-filter --apply-imputation
-docker run --platform=linux/amd64 -it jibin/postgwas:1.0 postgwas pipeline --modules flames --apply-filter --apply-imputation --help
+docker run --platform=linux/amd64 -it jibinjv/postgwas:1.0 postgwas pipeline --modules flames --apply-filter --apply-imputation --help
 ```
 
 ## Input Requirements
