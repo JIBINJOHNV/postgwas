@@ -5,50 +5,122 @@
 3) sumstat filtering
 4) 
 
+# docker buildx build --no-cache  --platform=linux/amd64 -t jibinjv/postgwas:1.0 .
+
+docker buildx build --platform=linux/amd64 -t jibinjv/postgwas:1.0 .
+
+
+docker run --platform=linux/amd64 \
+  -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents/ \
+  -it jibinjv/postgwas:1.0 \
+  postgwas harmonisation \
+      --nthreads 10 \
+      --max-mem 50G \
+      --config /Users/JJOHN41/Documents/developing_software/postgwas/tests/example_input_file.csv \
+      --defaults /Users/JJOHN41/Documents/developing_software/postgwas/tests/harmonisation.yaml
+
+
+
+
+
 
 sample_id="ADHD2022_iPSYCH_deCODE_PGC"
-base_dir='/Users/JJOHN41/Documents/developing_software/postgwas/data/oudir/ADHD2022_iPSYCH_deCODE_PGC/'
+base_dir='/Users/JJOHN41/Documents/developing_software/data/oudir/ADHD2022_iPSYCH_deCODE_PGC/'
 resourse_folder="/Users/JJOHN41/Documents/software_resources/resourses/postgwas/"
 genome_version="GRCh37"
 
-postgwas harmonisation \
- --nthreads 10 \
- --max-mem 50G \
- --config /Users/JJOHN41/Documents/developing_software/postgwas_underdevelopment/postgwas/data/harmonisation/example_input_file.csv \
- --defaults /Users/JJOHN41/Documents/developing_software/postgwas/src/postgwas/config/harmonisation.yaml 
 
 
-postgwas annot_ldblock \
+docker run --platform=linux/amd64 \
+  -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents/ \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -it jibinjv/postgwas:1.0 \
+  postgwas harmonisation \
+      --nthreads 10 \
+      --max-mem 50G \
+      --config /Users/JJOHN41/Documents/developing_software/postgwas/tests/example_input_file.csv \
+      --defaults /Users/JJOHN41/Documents/developing_software/postgwas/tests/harmonisation.yaml
+
+
+docker run --platform=linux/amd64 \
+  -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents/ \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -it jibinjv/postgwas:1.0 \
+    postgwas annot_ldblock \
+        --nthreads 10 \
+        --max-mem 30G \
+        --genome-version ${genome_version} \
+        --ld_block_population EUR AFR EAS \
+        --vcf ${base_dir}/1_harmonisation/${sample_id}_${genome_version}_merged.vcf.gz \
+        --ld-region-dir ${resourse_folder}ld_blocks/ 
+
+docker run --platform=linux/amd64 \
+  -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents/ \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -it jibinjv/postgwas:1.0 \
+    postgwas sumstat_filter \
+        --nthreads 10 \
+        --max-mem 30G \
+        --vcf ${base_dir}/1_harmonisation/${sample_id}_${genome_version}_merged.vcf.gz \
+        --sample_id ${sample_id}_${genome_version} \
+        --outdir ${base_dir}/2_filtered/ \
+        --pval-cutoff 0.0001 \
+        --maf-cutoff 0.001 \
+        --allelefreq-diff-cutoff 0.2 \
+        --info-cutoff 0.7 \
+        --external-af-name EUR \
+        --include-indels \
+        --include-palindromic \
+        --palindromic-af-lower 0.4 \
+        --palindromic-af-upper 0.6 \
+        --remove-mhc  \
+        --mhc-chrom 6 \
+        --mhc-start 25000000 \
+        --mhc-end 34000000  
+
+
+docker run --platform=linux/amd64 \
+  -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents/ \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -it jibinjv/postgwas:1.0 \
+    postgwas formatter \
     --nthreads 10 \
     --max-mem 30G \
-    --genome-version ${genome_version} \
-    --ld_block_population EUR AFR EAS \
-    --vcf ${base_dir}/1_harmonisation/${sample_id}_${genome_version}_merged.vcf.gz \
-    --ld-region-dir ${resourse_folder}ld_blocks/ 
+    --seed 10 \
+    --vcf ${base_dir}/1_harmonisation/${sample_id}_GRCh38_merged.vcf.gz \
+    --sample_id ${sample_id} \
+    --outdir ${base_dir}/3_format_inputs_GRCh38 \
+    --format magma finemap ldpred ldsc
 
 
-postgwas sumstat_filter \
-    --nthreads 10 \
-    --max-mem 30G \
-    --vcf ${base_dir}/1_harmonisation/${sample_id}_${genome_version}_merged.vcf.gz \
-    --sample_id ${sample_id}_${genome_version} \
-    --outdir ${base_dir}/2_filtered/ \
-    --pval-cutoff 0.0001 \
-    --maf-cutoff 0.001 \
-    --allelefreq-diff-cutoff 0.2 \
-    --info-cutoff 0.7 \
-    --external-af-name EUR \
-    --include-indels \
-    --include-palindromic \
-    --palindromic-af-lower 0.4 \
-    --palindromic-af-upper 0.6 \
-    --remove-mhc  \
-    --mhc-chrom 6 \
-    --mhc-start 25000000 \
-    --mhc-end 34000000  
+docker run --platform=linux/amd64 \
+  -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -it jibinjv/postgwas:1.0 \
+    postgwas heritability \
+        --nthreads 4 \
+        --max-mem 30G \
+        --seed 100 \
+        --sample_id ${sample_id} \
+        --outdir ${base_dir}/4_ldsc_analysis/ \
+        --sumstats ${base_dir}/3_format_inputs_GRCh38/${sample_id}_ldsc_input.tsv \
+        --heritability_tool ldsc \
+        --merge-alleles /Users/JJOHN41/Documents/software_resources/resourses/postgwas/1000GP_Phase3/eur_w_ld_chr/w_hm3.snplist \
+        --ref-ld-chr /Users/JJOHN41/Documents/software_resources/resourses/postgwas/1000GP_Phase3/eur_w_ld_chr/ \
+        --w-ld-chr /Users/JJOHN41/Documents/software_resources/resourses/postgwas/1000GP_Phase3/eur_w_ld_chr/ \
+        --samp-prev 0.5 \
+        --pop-prev 0.01 \
+        --info-min 0.7 \
+        --maf-min 0.01 \
+        --docker-image jibinjv/ldsc:1.0.1 \
+        --platform linux/amd64
 
 
-postgwas formatter \
+docker run --platform=linux/amd64 \
+  -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents/ \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -it jibinjv/postgwas:1.0 \
+    postgwas formatter \
     --nthreads 10 \
     --max-mem 30G \
     --seed 10 \
@@ -57,40 +129,25 @@ postgwas formatter \
     --outdir ${base_dir}/3_format_inputs \
     --format magma finemap ldpred ldsc
 
-postgwas heritability \
-    --nthreads 4 \
-    --max-mem 30G \
-    --seed 100 \
-    --sample_id ${sample_id} \
-    --outdir ${base_dir}/4_ldsc_analysis/ \
-    --sumstats ${base_dir}/3_format_inputs/${sample_id}_ldsc_input.tsv \
-    --heritability_tool ldsc \
-    --merge-alleles /Users/JJOHN41/Documents/software_resources/resourses/postgwas/1000GP_Phase3/eur_w_ld_chr/w_hm3.snplist \
-    --ref-ld-chr /Users/JJOHN41/Documents/software_resources/resourses/postgwas/1000GP_Phase3/eur_w_ld_chr/ \
-    --w-ld-chr /Users/JJOHN41/Documents/software_resources/resourses/postgwas/1000GP_Phase3/eur_w_ld_chr/ \
-    --samp-prev 0.5 \
-    --pop-prev 0.01 \
-    --info-min 0.7 \
-    --maf-min 0.01 \
-    --docker-image jibinjv/ldsc:1.0.1 \
-    --platform linux/amd64
-
-
-postgwas imputation \
-    --nthreads 10 \
-    --max-mem 60G \
-    --seed 10 \
-    --sample_id ${sample_id} \
-    --predld_input_dir ${base_dir}/3_format_inputs/ldpred/ \
-    --outdir ${base_dir}/3_format_inputs/5_imputation_analysis/ \
-    --imputation_tool pred_ld \
-    --ref_ld /Users/JJOHN41/Documents/software_resources/resourses/postgwas/imputation/pred-ld/ref/ \
-    --gwas2vcf_resource /Users/JJOHN41/Documents/software_resources/resourses/postgwas/gwas2vcf/ \
-    --r2threshold 0.8 \
-    --maf 0.001 \
-    --population EUR \
-    --ref TOP_LD \
-    --corr_method pearson
+docker run --platform=linux/amd64 \
+  -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -it jibinjv/postgwas:1.0 \
+    postgwas imputation \
+        --nthreads 10 \
+        --max-mem 60G \
+        --seed 10 \
+        --sample_id ${sample_id} \
+        --predld_input_dir ${base_dir}/3_format_inputs/ldpred/ \
+        --outdir ${base_dir}/3_format_inputs/5_imputation_analysis/ \
+        --imputation_tool pred_ld \
+        --ref_ld /Users/JJOHN41/Documents/software_resources/resourses/postgwas/imputation/pred-ld/ref/ \
+        --gwas2vcf_resource /Users/JJOHN41/Documents/software_resources/resourses/postgwas/gwas2vcf/ \
+        --r2threshold 0.8 \
+        --maf 0.001 \
+        --population EUR \
+        --ref TOP_LD \
+        --corr_method pearson
 
 postgwas ld_clump \
     --nthreads 10 \

@@ -1,2 +1,0 @@
-[console_scripts]
-postgwas = postgwas.__main__:main

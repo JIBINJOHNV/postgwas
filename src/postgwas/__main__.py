@@ -7,7 +7,7 @@ Example usage:
   postgwas harmonisation pipeline ...
   postgwas heritability direct --help
 """
-
+from postgwas._mp_fix import *
 import sys
 from rich.console import Console
 from rich.table import Table

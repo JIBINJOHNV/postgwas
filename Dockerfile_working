@@ -1,42 +1,38 @@
 # =====================================================================
-# Base Image: micromamba (Debian bullseye)
+# Base image
 # =====================================================================
 FROM mambaorg/micromamba:1.4.2
 
 USER root
 
 # =====================================================================
-# System dependencies
+# System-level dependencies
 # =====================================================================
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        gcc g++ make wget git curl bzip2 \
+        gcc g++ make wget git bzip2 \
         libcurl4-openssl-dev libsuitesparse-dev \
         zlib1g-dev libbz2-dev liblzma-dev \
         ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 # =====================================================================
-# Install Docker CLI (STATIC BINARY — avoids libc mismatch)
-# =====================================================================
-RUN curl -L https://download.docker.com/linux/static/stable/x86_64/docker-24.0.6.tgz -o /tmp/docker.tgz && \
-    tar -xzvf /tmp/docker.tgz -C /tmp && \
-    mv /tmp/docker/docker /usr/local/bin/docker && \
-    chmod +x /usr/local/bin/docker && \
-    rm -rf /tmp/docker /tmp/docker.tgz
-
-# =====================================================================
 # Create Conda environment
 # =====================================================================
 COPY environment.yml /tmp/environment.yml
+ARG MAMBA_ENV_NAME=postgwas
 
-RUN micromamba create -y -n postgwas -f /tmp/environment.yml && \
+RUN micromamba create -y -n ${MAMBA_ENV_NAME} -f /tmp/environment.yml && \
     micromamba clean --all --yes
 
-# Set default environment for interactive shells
+# =====================================================================
+# Auto-activate postgwas env for interactive users
+# =====================================================================
 RUN sed -i 's/micromamba activate base/micromamba activate postgwas/g' /etc/skel/.bashrc
 
-# All following RUN commands executed inside postgwas environment
+# =====================================================================
+# Execute further steps inside the postgwas environment
+# =====================================================================
 SHELL ["micromamba", "run", "-n", "postgwas", "/bin/bash", "-c"]
 
 # =====================================================================
@@ -44,7 +40,6 @@ SHELL ["micromamba", "run", "-n", "postgwas", "/bin/bash", "-c"]
 # =====================================================================
 WORKDIR /opt/tools
 
-# Download sources
 RUN wget https://github.com/samtools/bcftools/releases/download/1.22/bcftools-1.22.tar.bz2 && \
     wget https://github.com/samtools/htslib/releases/download/1.22/htslib-1.22.tar.bz2 && \
     tar -xvjf bcftools-1.22.tar.bz2 && \
@@ -57,21 +52,21 @@ RUN ./configure --enable-libcurl --prefix=/usr/local && \
 
 # Install Freeseek plugins
 WORKDIR /opt/tools/bcftools-1.22/plugins
-RUN wget https://raw.githubusercontent.com/freeseek/score/master/score.c && \
-    wget https://raw.githubusercontent.com/freeseek/score/master/score.h && \
-    wget https://raw.githubusercontent.com/freeseek/score/master/munge.c && \
-    wget https://raw.githubusercontent.com/freeseek/score/master/liftover.c && \
-    wget https://raw.githubusercontent.com/freeseek/score/master/metal.c && \
-    wget https://raw.githubusercontent.com/freeseek/score/master/blup.c && \
-    wget https://raw.githubusercontent.com/freeseek/score/master/pgs.c && \
-    wget https://raw.githubusercontent.com/freeseek/score/master/pgs.mk
+RUN wget http://raw.githubusercontent.com/freeseek/score/master/score.c && \
+    wget http://raw.githubusercontent.com/freeseek/score/master/score.h && \
+    wget http://raw.githubusercontent.com/freeseek/score/master/munge.c && \
+    wget http://raw.githubusercontent.com/freeseek/score/master/liftover.c && \
+    wget http://raw.githubusercontent.com/freeseek/score/master/metal.c && \
+    wget http://raw.githubusercontent.com/freeseek/score/master/blup.c && \
+    wget http://raw.githubusercontent.com/freeseek/score/master/pgs.c && \
+    wget http://raw.githubusercontent.com/freeseek/score/master/pgs.mk
 
-# Patch pgs.c for SuiteSparse compatibility
+# Patch pgs.c for SuiteSparse 7 compatibility
 WORKDIR /opt/tools/bcftools-1.22
 RUN sed -i '2254s/^/\/\//' plugins/pgs.c && \
     sed -i '2255s/^/\/\//' plugins/pgs.c
 
-# Build BCFtools + plugins
+# Build bcftools
 RUN ./configure \
         --prefix=/usr/local \
         --with-htslib=/opt/tools/htslib-1.22 \
@@ -80,33 +75,27 @@ RUN ./configure \
     make -j && make install
 
 # =====================================================================
-# Install PostGWAS
+# Install PostGWAS (local source)
 # =====================================================================
 WORKDIR /opt/postgwas
 COPY . /opt/postgwas
 
-# Install MAGMA
+# Install MAGMA binary
 RUN chmod +x magma/magma && mv magma/magma /usr/local/bin/magma
 
-# Install PostGWAS itself
+# Install PostGWAS WITHOUT dependencies (environment.yml handles deps)
 RUN pip install --upgrade pip && \
     pip install --no-deps --no-cache-dir -e .
 
 # =====================================================================
-# IMPORTANT: Switch back to system bash BEFORE adding users
+# Runtime user
 # =====================================================================
-SHELL ["/bin/bash", "-c"]
-
 USER root
-
-# Create runtime user (no need for "docker" group)
-RUN useradd -m pguser && \
-    usermod -aG root pguser
-
+RUN useradd -m pguser
 USER pguser
 
 # =====================================================================
-# Entrypoint
+# Entry point
 # =====================================================================
 ENTRYPOINT ["micromamba", "run", "-n", "postgwas"]
 CMD ["postgwas", "--help"]
