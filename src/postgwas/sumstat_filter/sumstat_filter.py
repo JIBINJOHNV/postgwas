@@ -68,14 +68,14 @@ def filter_gwas_vcf_bcftools(
     # ============================================================
     include_parts = []
     if pval_cutoff is not None:
-        include_parts.append(f"(FORMAT/LP >= {pval_cutoff})")
+        include_parts.append(f"((MIN(FORMAT/LP) >= {pval_cutoff})")
     if maf_cutoff is not None:
-        include_parts.append(f"(FORMAT/AF >= {maf_cutoff} & FORMAT/AF <= {1 - maf_cutoff})")
+        include_parts.append(f"(MIN(FORMAT/AF) >= {maf_cutoff} & MAX(FORMAT/AF) <= {1 - maf_cutoff})")
     if info_cutoff is not None:
-        include_parts.append(f"(FORMAT/SI >= {info_cutoff})")
+        include_parts.append(f"(MIN(FORMAT/SI) >= {info_cutoff})")
     if allelefreq_diff_cutoff is not None:
         include_parts.append(
-            f"(abs(FORMAT/AF - INFO/{external_af_name}) <= {allelefreq_diff_cutoff})"
+            f"(abs(AVG(FORMAT/AF) - INFO/{external_af_name}) <= {allelefreq_diff_cutoff})"
         )
     include_expr = " & ".join(include_parts) if include_parts else "1"
     log_print("🔧 Include expression (bcftools -i):")

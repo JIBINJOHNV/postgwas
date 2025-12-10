@@ -2,13 +2,7 @@ import os
 import io
 import polars as pl
 from pathlib import Path
-from typing import Tuple, Dict
-
-import os
-import io
-from pathlib import Path
-from typing import Tuple, Dict
-import polars as pl
+from typing import Tuple, Dict, Optional
 
 
 def add_or_calculate_eaf(
@@ -18,53 +12,53 @@ def add_or_calculate_eaf(
     eaffile: str = "NA",
     default_eaf_file: str = "NA",
     default_eaf_eafcolumn: str = "EAF",
+    maf_eaf_decision_cutoff: float = 0.95,
+    external_eaf_colmap: Optional[Dict] = None,
 ) -> Tuple[pl.DataFrame, Dict, dict]:
     """
-    Multiprocessing-safe version of allele frequency harmonisation.
-    All output is written ONLY to:
-
-        logs/{gwas_outputname}_chr{chromosome}_eaf.log
-
-    No output is printed to screen.
+    Harmonise EAF values using internal or external reference.
+    STRONG FAIL-FAST VERSION:
+    Pipeline stops immediately if external EAF behaves like MAF.
     """
 
     # -------------------------------------------------------
     # Create per-chromosome logfile
     # -------------------------------------------------------
     gwas_outputname = sample_column_dict.get("gwas_outputname", "GWAS")
-    output_dir      = sample_column_dict.get("output_folder", ".")
-    log_dir         = Path(output_dir) / "logs"
+    output_dir = sample_column_dict.get("output_folder", ".")
+    log_dir = Path(output_dir) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     log_file = log_dir / f"{gwas_outputname}_chr{chromosome}_eaf.log"
-
-    # StringIO buffer to collect prints
     log_buffer = io.StringIO()
 
-    def log_print(*args, **kwargs):
-        """Write ONLY to logfile, not to stdout."""
+    def log_print(*args):
         log_buffer.write(" ".join(str(a) for a in args) + "\n")
-
-    # -------------------------------------------------------
-    # ORIGINAL LOGIC (unchanged except print → log_print)
-    # -------------------------------------------------------
 
     qc_info = {"initial_variants": df.height}
     log_print("\n🧩 Starting allele frequency harmonization...")
 
+    # Required sample dictionary columns
     chr_col = sample_column_dict["chr_col"]
     pos_col = sample_column_dict["pos_col"]
-    ea_col  = sample_column_dict["ea_col"]
-    oa_col  = sample_column_dict["oa_col"]
+    ea_col = sample_column_dict["ea_col"]
+    oa_col = sample_column_dict["oa_col"]
     eaf_col = sample_column_dict.get("eaf_col", "NA")
     eafcolumn = sample_column_dict.get("eafcolumn", "EAF")
 
-    # -----------------------------------------------------------------------
-    # Helper: Validate EAF column
-    # -----------------------------------------------------------------------
-    def validate_eaf_column(df_check: pl.DataFrame, colname: str, label: str):
+    # -------------------------------------------------------
+    # Helper — validate EAF column quality (STRICT FAIL)
+    # -------------------------------------------------------
+    def validate_eaf_column(
+        df_check: pl.DataFrame,
+        colname: str,
+        label: str,
+        maf_eaf_decision_cutoff=maf_eaf_decision_cutoff,
+    ):
         if colname not in df_check.columns:
-            raise ValueError(f"❌ {label} '{colname}' not found in dataframe.")
+            raise ValueError(
+                f"❌ {label} '{colname}' not found in dataframe for chromosome {chromosome}."
+            )
 
         total = df_check.height
         out_of_range = df_check.filter(
@@ -75,248 +69,197 @@ def add_or_calculate_eaf(
         low_freq = df_check.filter(pl.col(colname) <= 0.5).height
         low_freq_pct = low_freq / total if total else 0
 
-        stats = df_check.select([
-            pl.col(colname).min().alias("min"),
-            pl.col(colname).max().alias("max"),
-            pl.col(colname).mean().alias("mean"),
-            pl.len().alias("total")
-        ]).to_dicts()[0]
-
-        log_print(f"📊 {label} '{colname}' summary before clipping:")
-        log_print(f"   Total variants: {stats['total']:,}")
-        log_print(f"   Invalid values: {out_of_range:,} ({out_of_range_pct*100:.2f}%)")
-        log_print(f"   Range: {stats['min']} – {stats['max']}, Mean: {stats['mean']}")
-
+        # Hard failure if too many invalid values
         if out_of_range_pct > 0.05:
             raise ValueError(
-                f"❌ {label} '{colname}' has {out_of_range_pct*100:.2f}% invalid values."
+                f"❌ {label} '{colname}' contains {out_of_range_pct*100:.2f}% invalid values "
+                f"on chromosome {chromosome} → Pipeline stopped."
             )
-        if low_freq_pct > 0.75:
+
+        # HARD FAIL-FAST if column behaves like MAF
+        if low_freq_pct > maf_eaf_decision_cutoff:
             raise ValueError(
-                f"⚠️ {label} '{colname}' looks like MAF ({low_freq_pct*100:.2f}% ≤ 0.5)."
+                f"🛑 CRITICAL ERROR: {label} '{colname}' behaves like MAF on chromosome {chromosome}.\n"
+                f"→ {low_freq_pct*100:.2f}% of values ≤ 0.5.\n"
+                f"→ This indicates the file provides MAF instead of EAF.\n"
+                f"Pipeline cannot continue.\n"
+                f"Please check the external allele frequency reference file."
             )
 
         df_checked = df_check.with_columns(
-            pl.col(colname).clip(0.000001, 1.0).alias(colname)
-        )
-
-        clipped_stats = df_checked.select([
-            pl.col(colname).min().alias("min"),
-            pl.col(colname).max().alias("max"),
-            pl.col(colname).mean().alias("mean"),
-            pl.len().alias("total")
-        ]).to_dicts()[0]
-
-        log_print(f"✅ {label} '{colname}' clipped to [0.000001–1.0]")
-        log_print(
-            f"   New Range: {clipped_stats['min']} – {clipped_stats['max']}, "
-            f"Mean: {clipped_stats['mean']}"
+            pl.col(colname).clip(0.000001, 1.0)
         )
 
         return df_checked, {
             "out_of_range_pct": out_of_range_pct,
             "low_freq_pct": low_freq_pct,
-            "min": clipped_stats["min"],
-            "max": clipped_stats["max"],
-            "mean": clipped_stats["mean"],
         }
 
-    # -----------------------------------------------------------------------
-    # Helper: Load external EAF file
-    # -----------------------------------------------------------------------
-    def load_eaf_file(path: str) -> pl.DataFrame:
+    # -------------------------------------------------------
+    # Helper — Load EXTERNAL EAF file (STRICT FAIL)
+    # -------------------------------------------------------
+    def load_eaf_file(
+        path: str,
+        eafcolumn: str,
+        external_eaf_colmap: Optional[dict] = None,
+        maf_eaf_decision_cutoff: float = maf_eaf_decision_cutoff,
+    ) -> pl.DataFrame:
+
+        if external_eaf_colmap is None:
+            external_eaf_colmap = {"chr": "CHROM", "pos": "POS", "a1": "ALT", "a2": "REF"}
+
         if path == "NA" or not os.path.exists(path):
-            raise FileNotFoundError(f"❌ EAF reference file '{path}' not found.")
+            raise FileNotFoundError(
+                f"❌ External EAF file '{path}' not found for chromosome {chromosome}."
+            )
 
-        log_print(f"📂 Loading external EAF: {os.path.basename(path)} [expected column: {eafcolumn}]")
+        log_print(f"📂 Loading external EAF: {os.path.basename(path)}")
 
-        eaf_df = (
-            pl.read_csv(path, separator=r"\s+")
-            .select(["chr", "pos", "a1", "a2", eafcolumn])
+        # Try separators
+        try:
+            df_ext = pl.read_csv(path, sep="\t", has_header=True)
+            if eafcolumn not in df_ext.columns:
+                raise ValueError
+            log_print("✔ Detected TAB-delimited format")
+        except:
+            try:
+                df_ext = pl.read_csv(path, sep=" ", has_header=True)
+                if eafcolumn not in df_ext.columns:
+                    raise ValueError
+                log_print("✔ Detected SPACE-delimited format")
+            except:
+                log_print("⚠ Falling back to whitespace normalization via pandas")
+                import pandas as pd
+                df_ext = pl.from_pandas(pd.read_csv(path, delim_whitespace=True))
+
+        # Validate mapping
+        for key in ["chr", "pos", "a1", "a2"]:
+            if key not in external_eaf_colmap:
+                raise ValueError(f"❌ Missing '{key}' in external_eaf_colmap.")
+            if external_eaf_colmap[key] not in df_ext.columns:
+                raise ValueError(
+                    f"❌ Expected column '{external_eaf_colmap[key]}' not found in external file."
+                )
+
+        chr_in = external_eaf_colmap["chr"]
+        pos_in = external_eaf_colmap["pos"]
+        a1_in = external_eaf_colmap["a1"]
+        a2_in = external_eaf_colmap["a2"]
+
+        log_print(f"✔ Using external EAF column map: {external_eaf_colmap}")
+
+        # Clean + rename
+        df_ext = (
+            df_ext.select([chr_in, pos_in, a1_in, a2_in, eafcolumn])
+            .rename({chr_in: chr_col, pos_in: pos_col, a1_in: ea_col, a2_in: oa_col})
             .with_columns([
-                pl.col("pos").cast(pl.Int64),
-                pl.col("chr").cast(pl.Utf8).str.replace("0X", "X"),
-                pl.col("a1").str.to_uppercase(),
-                pl.col("a2").str.to_uppercase(),
+                pl.col(chr_col).str.replace("0X", "X"),
+                pl.col(pos_col).cast(pl.Int64),
+                pl.col(ea_col).str.to_uppercase(),
+                pl.col(oa_col).str.to_uppercase(),
             ])
-            .rename({"chr": chr_col, "pos": pos_col, "a1": ea_col, "a2": oa_col})
         )
 
-        eaf_df, _ = validate_eaf_column(eaf_df, eafcolumn, "External EAF")
-        return eaf_df
+        # STRICT VALIDATION (raises error → pipeline stops)
+        df_ext, _ = validate_eaf_column(df_ext, eafcolumn, "External EAF")
+        return df_ext
 
-    # -----------------------------------------------------------------------
-    # STEP 1 — Internal EAF
-    # -----------------------------------------------------------------------
+    # -------------------------------------------------------
+    # STEP 1 — Try internal EAF
+    # -------------------------------------------------------
     eaf_valid = False
 
     if eaf_col != "NA" and eaf_col in df.columns:
-        log_print(f"🔍 Found internal EAF column '{eaf_col}', validating...")
-
         try:
             df, result = validate_eaf_column(df, eaf_col, "Internal EAF")
+            qc_info.update(result)
             eaf_valid = True
-            qc_info.update({"internal_eaf_valid": True, **result})
         except ValueError as e:
-            log_print(f"⚠️ {e}")
-            qc_info.update({"internal_eaf_valid": False, "reason": str(e)})
-    else:
-        log_print("ℹ️ No internal EAF column found.")
-        qc_info["internal_eaf_valid"] = False
+            raise SystemExit(
+                f"\n🛑 PIPELINE STOPPED: Internal EAF error on chromosome {chromosome}.\n{e}"
+            )
 
-    # -----------------------------------------------------------------------
-    # STEP 2 — If internal valid, compute zMAF
-    # -----------------------------------------------------------------------
+    # -------------------------------------------------------
+    # STEP 2 — Internal OK → compute zMAF
+    # -------------------------------------------------------
     if eaf_valid:
-        log_print(f"✅ '{eaf_col}' is valid. Computing zMAF directly.")
-
         df_checked = df.with_columns(
-            (pl.when(pl.col(eaf_col) <= 0.5)
-             .then(pl.col(eaf_col))
-             .otherwise(1 - pl.col(eaf_col)))
+            pl.when(pl.col(eaf_col) <= 0.5)
+            .then(pl.col(eaf_col))
+            .otherwise(1 - pl.col(eaf_col))
             .alias("zmaf")
         )
         sample_column_dict["eaf_col"] = eaf_col
 
     else:
-        # -------------------------------------------------------------------
-        # STEP 3 — Load external EAF
-        # -------------------------------------------------------------------
+        # ---------------------------------------------------
+        # STEP 3 — Use external EAF (strict fail)
+        # ---------------------------------------------------
         eaf_file_to_use = (
             eaffile if (eaffile != "NA" and os.path.exists(eaffile))
             else default_eaf_file
         )
 
-        if eaf_file_to_use == default_eaf_file:
-            eafcolumn = default_eaf_eafcolumn
-        else:
-            eafcolumn = sample_column_dict.get("eafcolumn", "EAF")
+        eafcolumn = (
+            default_eaf_eafcolumn
+            if eaf_file_to_use == default_eaf_file
+            else sample_column_dict.get("eafcolumn", "EAF")
+        )
 
-        log_print(f"ℹ️ Using external EAF file: {eaf_file_to_use}")
-        log_print(f"📊 Expected EAF column in file: '{eafcolumn}'")
+        log_print(f"ℹ Using external EAF file: {eaf_file_to_use}")
 
-        eaf_df = load_eaf_file(eaf_file_to_use)
+        try:
+            eaf_df = load_eaf_file(
+                eaf_file_to_use,
+                eafcolumn=eafcolumn,
+                external_eaf_colmap=external_eaf_colmap,
+                maf_eaf_decision_cutoff=maf_eaf_decision_cutoff,
+            )
+        except Exception as e:
+            raise SystemExit(
+                f"\n🛑 PIPELINE STOPPED: External EAF error on chromosome {chromosome}.\n{e}"
+            )
 
+        # Standardize allele case
         df = df.with_columns([
-            pl.col(ea_col).cast(pl.Utf8).str.to_uppercase(),
-            pl.col(oa_col).cast(pl.Utf8).str.to_uppercase(),
+            pl.col(ea_col).str.to_uppercase(),
+            pl.col(oa_col).str.to_uppercase(),
         ])
 
+        # direct match
         df1 = df.join(eaf_df, on=[chr_col, pos_col, ea_col, oa_col], how="inner")
 
-        eaf_df_flip = (
+        # flipped match
+        eaf_flip = (
             eaf_df.rename({ea_col: oa_col, oa_col: ea_col})
             .with_columns((1 - pl.col(eafcolumn)).alias(eafcolumn))
         )
+        df2 = df.join(eaf_flip, on=[chr_col, pos_col, ea_col, oa_col], how="inner")
 
-        df2 = df.join(eaf_df_flip, on=[chr_col, pos_col, ea_col, oa_col], how="inner")
-
-        df_checked = pl.concat([df1, df2], how="vertical") \
-                       .unique([chr_col, pos_col, ea_col, oa_col])
-
-        df_checked = df_checked.with_columns(
-            (pl.when(pl.col(eafcolumn) <= 0.5)
-             .then(pl.col(eafcolumn))
-             .otherwise(1 - pl.col(eafcolumn)))
-            .alias("zmaf")
+        df_checked = (
+            pl.concat([df1, df2], how="vertical")
+            .unique([chr_col, pos_col, ea_col, oa_col])
+            .with_columns(
+                pl.when(pl.col(eafcolumn) <= 0.5)
+                .then(pl.col(eafcolumn))
+                .otherwise(1 - pl.col(eafcolumn))
+                .alias("zmaf")
+            )
         )
 
         sample_column_dict["eaf_col"] = eafcolumn
         qc_info["external_eaf_file"] = eaf_file_to_use
 
-    # -----------------------------------------------------------------------
-    # STEP 4 — Final sanity check
-    # -----------------------------------------------------------------------
-    log_print("🧪 Performing final EAF sanity checks (before and after clipping)...")
-
-    eaf_col_to_check = sample_column_dict["eaf_col"]
-    total = df_checked.height
-
-    out_of_bounds_before = df_checked.filter(
-        (pl.col(eaf_col_to_check) < 0.000001)
-        | (pl.col(eaf_col_to_check) > 1.0)
-    ).height
-
-    frac_before = out_of_bounds_before / total if total else 0
-
-    log_print(
-        f"⚙️ Before clipping: {out_of_bounds_before:,} "
-        f"({frac_before*100:.3f}%) out-of-range."
-    )
-
+    # -------------------------------------------------------
+    # Final sanity clipping
+    # -------------------------------------------------------
+    eaf_used = sample_column_dict["eaf_col"]
     df_checked = df_checked.with_columns(
-        pl.col(eaf_col_to_check).clip(0.000001, 1.0).alias(eaf_col_to_check)
+        pl.col(eaf_used).clip(0.000001, 1.0)
     )
 
-    stats = df_checked.select([
-        pl.col(eaf_col_to_check).min().alias("min"),
-        pl.col(eaf_col_to_check).max().alias("max"),
-        pl.col(eaf_col_to_check).mean().alias("mean"),
-        pl.len().alias("total")
-    ]).to_dicts()[0]
-
-    log_print(
-        f"✅ After clipping: range={stats['min']} – {stats['max']}, "
-        f"mean={stats['mean']} over {stats['total']:,} variants."
-    )
-
-    qc_info.update({
-        "preclip_out_of_range_count": out_of_bounds_before,
-        "preclip_out_of_range_fraction": frac_before,
-        "final_min_eaf": stats["min"],
-        "final_max_eaf": stats["max"],
-        "final_mean_eaf": stats["mean"],
-        "final_total_variants": stats["total"],
-        "final_eaf_col_used": sample_column_dict["eaf_col"],
-    })
-
-    log_print("🎯 EAF harmonization complete.\n")
-
-    # -------------------------------------------------------
-    # WRITE LOG FILE
-    # -------------------------------------------------------
+    # Write logs
     with open(log_file, "w") as f:
         f.write(log_buffer.getvalue())
 
     return df_checked, qc_info, sample_column_dict
-
-
-
-
-'''
-==============================================================
-🧠 LOGIC SUMMARY: EAF / MAF HARMONIZATION PROCESS
-==============================================================
-
-1️⃣ Check if internal EAF column exists
-    - If present → calculate proportion of variants with EAF > 0.6
-    - If >25% → column is true EAF → compute zmaf = min(EAF, 1−EAF)
-    - If ≤25% → treat as MAF → will be corrected using external EAF file
-
-2️⃣ If EAF column missing or "NA"
-    - Check if external EAF file (eaffile) exists
-    - If not, use default reference file (default_eaf_file)
-
-3️⃣ Load external EAF reference
-    - Standardize columns: "chr", "pos", "a1", "a2" → renamed to match GWAS df
-      (chr_col, pos_col, ea_col, oa_col)
-    - Normalize alleles (uppercase), chromosomes, and types
-
-4️⃣ Merge GWAS and EAF data
-    - Merge once by allele orientation (A1/A2)
-    - Merge again with flipped alleles (A2/A1), adjust EAF = 1−EAF
-    - Concatenate both, then deduplicate by (chr, pos, A1, A2)
-
-5️⃣ Compute minor allele frequency (MAF)
-    - For each variant: zmaf = EAF if EAF ≤ 0.5 else 1−EAF
-
-6️⃣ Record QC information
-    - Variant counts before & after merging (direct, flipped, total)
-    - File used, classification (EAF or MAF), and final variant count
-
-7️⃣ Return
-    - Harmonized dataframe with verified EAF and zmaf columns
-    - QC dictionary summarizing all counts and processing steps
-==============================================================
-
-'''

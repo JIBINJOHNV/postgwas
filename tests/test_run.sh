@@ -80,20 +80,6 @@ docker run --platform=linux/amd64 \
 
 
 docker run --platform=linux/amd64 \
-  -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents/ \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -it jibinjv/postgwas:1.0 \
-    postgwas formatter \
-    --nthreads 10 \
-    --max-mem 30G \
-    --seed 10 \
-    --vcf ${base_dir}/1_harmonisation/${sample_id}_GRCh38_merged.vcf.gz \
-    --sample_id ${sample_id} \
-    --outdir ${base_dir}/3_format_inputs_GRCh38 \
-    --format magma finemap ldpred ldsc
-
-
-docker run --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -124,9 +110,9 @@ docker run --platform=linux/amd64 \
     --nthreads 10 \
     --max-mem 30G \
     --seed 10 \
-    --vcf ${base_dir}/2_filtered/${sample_id}_${genome_version}_filtered.vcf.gz \
+    --vcf ${base_dir}/1_harmonisation/${sample_id}_GRCh38_merged.vcf.gz \
     --sample_id ${sample_id} \
-    --outdir ${base_dir}/3_format_inputs \
+    --outdir ${base_dir}/3_format_inputs_GRCh38 \
     --format magma finemap ldpred ldsc
 
 docker run --platform=linux/amd64 \
@@ -138,8 +124,8 @@ docker run --platform=linux/amd64 \
         --max-mem 60G \
         --seed 10 \
         --sample_id ${sample_id} \
-        --predld_input_dir ${base_dir}/3_format_inputs/ldpred/ \
-        --outdir ${base_dir}/3_format_inputs/5_imputation_analysis/ \
+        --predld_input_dir ${base_dir}/3_format_inputs_GRCh38/ldpred/ \
+        --outdir ${base_dir}/5_imputation_analysis/ \
         --imputation_tool pred_ld \
         --ref_ld /Users/JJOHN41/Documents/software_resources/resourses/postgwas/imputation/pred-ld/ref/ \
         --gwas2vcf_resource /Users/JJOHN41/Documents/software_resources/resourses/postgwas/gwas2vcf/ \
@@ -148,6 +134,19 @@ docker run --platform=linux/amd64 \
         --population EUR \
         --ref TOP_LD \
         --corr_method pearson
+
+
+
+docker run --platform=linux/amd64 \
+  -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents/ \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -it jibinjv/postgwas:1.0 \
+  postgwas harmonisation \
+      --nthreads 10 \
+      --max-mem 50G \
+      --config /Users/JJOHN41/Documents/developing_software/data/oudir/ADHD2022_iPSYCH_deCODE_PGC/5_imputation_analysis/ADHD2022_iPSYCH_deCODE_PGC_gwas2vcf_config.csv \
+      --defaults /Users/JJOHN41/Documents/developing_software/postgwas/tests/harmonisation.yaml
+
 
 postgwas ld_clump \
     --nthreads 10 \

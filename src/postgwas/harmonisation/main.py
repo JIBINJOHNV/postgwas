@@ -250,6 +250,9 @@ def process_one_chromosome(
     output_dir: str = ".",
     threads: int = 5,
     gwastovcf_main_script_path: str = "/app/main.py",
+    maf_eaf_decision_cutoff=0.95,
+    extrnal_eaf_colmap={"chr": "CHROM","pos": "POS","a1": "ALT","a2": "REF"},
+
 ) -> Tuple[str, Dict[str, Any]]:
     """
     Run full harmonisation + GWAS→VCF + bcftools annotation for a single chromosome.
@@ -298,8 +301,8 @@ def process_one_chromosome(
             default_comparison_af_column=default_comparison_af_column,
             user_info_column=user_info_column,
             default_info_column=default_info_column,
-            dbsnp=dbsnp,
-        )
+            dbsnp=dbsnp
+            )
         logger.info("Resource map constructed.")
 
         # ------------------------------
@@ -312,6 +315,8 @@ def process_one_chromosome(
             eaffile=res["user_eaf_file"],
             default_eaf_file=res["default_eaf_file"],
             default_eaf_eafcolumn=res["default_eaf_column"],
+            maf_eaf_decision_cutoff=maf_eaf_decision_cutoff,
+            external_eaf_colmap=extrnal_eaf_colmap
         )
         logger.info("EAF harmonisation completed.")
 
@@ -488,6 +493,8 @@ def gwas_to_vcf_parallel(
     gwastovcf_main_script_path="/app/main.py",
     grch37_file=None,
     grch38_file=None,
+    maf_eaf_decision_cutoff=0.95,
+    extrnal_eaf_colmap={"chr": "CHROM","pos": "POS","a1": "ALT","a2": "REF"}
 ):
     """
     Full per-chromosome parallel harmonisation + GWAS2VCF.
@@ -600,6 +607,8 @@ def gwas_to_vcf_parallel(
                     output_dir,
                     5,  # threads per chromosome for bcftools etc.
                     gwastovcf_main_script_path,
+                    maf_eaf_decision_cutoff=maf_eaf_decision_cutoff,
+                    extrnal_eaf_colmap=extrnal_eaf_colmap,
                 )
                 future_to_chr[future] = chrom
 
@@ -702,7 +711,8 @@ def run_harmonisation_pipeline(
     required_cols = default_cfg_obj["required_columns_in_sumstat"]
     optional_cols = default_cfg_obj["optional_columns_in_sumstat"]
     gwastovcf_script = default_cfg_obj["gwastovcf_main_script_path"]
-
+    maf_eaf_decision_cutoff =default_cfg_obj['maf_eaf_decision_cutoff']
+    extrnal_eaf_colmap=default_cfg_obj["extrnal_eaf_colmap"]
     # Build clean path using pathlib
     output_folder = (
         Path(sample_column_dict["output_folder"])
@@ -794,6 +804,8 @@ def run_harmonisation_pipeline(
         grch37_file=grch37_check,
         grch38_file=grch38_check,
         gwastovcf_main_script_path=gwastovcf_script,
+        maf_eaf_decision_cutoff=maf_eaf_decision_cutoff,
+        extrnal_eaf_colmap=extrnal_eaf_colmap
     )
 
     qc_summary_path = (

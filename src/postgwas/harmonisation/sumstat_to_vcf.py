@@ -156,18 +156,21 @@ def run_bcftools_annot(
     # -------------------------------------------------------
     # Step 1: dbSNP annotation
     # -------------------------------------------------------
-    log("🧬 Step 1/4: dbSNP annotation...")
+    log("🧬 Step 1: dbSNP annotation + multi-allelic split...")
+
     cmd1 = [
-        "bcftools", "annotate",
-        "--threads", str(threads),
-        "--annotations", default_dbsnp_file,
-        "--columns", "CHROM,POS,REF,ALT,ID",
-        "-Oz",
-        "-o", str(output1_vcf),
-        "--write-index=tbi",
-        str(input_vcf),
+        "bash", "-c",
+        f"bcftools annotate "
+        f"--threads {threads} "
+        f"--annotations \"{default_dbsnp_file}\" "
+        f"--columns CHROM,POS,REF,ALT,ID "
+        f"\"{input_vcf}\" "
+        f"| bcftools norm -m-any -d exact "
+        f"| bgzip -c > \"{output1_vcf}\" "
+        f"&& tabix -f -p vcf \"{output1_vcf}\""
     ]
-    _run_bcftools_step(cmd1, log_file, "dbsnp_annotate")
+
+    _run_bcftools_step(cmd1, log_file, "annotate_norm_split")
 
     # -------------------------------------------------------
     # Step 2: AF annotation
@@ -223,7 +226,7 @@ def run_bcftools_annot(
             --chain {chain_file} \
             --reject {reject_vcf} \
             --reject-type z \
-        | bcftools view -e 'INFO/SWAP && (INFO/SWAP==1 || INFO/SWAP==-1)' \
+        | bcftools view -e 'INFO/SWAP && (INFO/SWAP==1 || INFO/SWAP==-1)' | bcftools norm -m-any -d exact \
         | bcftools sort -Oz \
             -o {target_vcf} \
             --write-index=tbi

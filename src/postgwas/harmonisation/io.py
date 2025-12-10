@@ -126,6 +126,9 @@ def read_sumstats(sumstat_file: str,output_dir: str) -> Tuple[pl.DataFrame, int,
     #print(f"{'Has' if skip_hash else 'No'} '##' metadata")
     # ---- line count ---------------------------------------------------
     shell_cnt = count_data_lines(sumstat_file, skip_hash)
+    if shell_cnt >= 1:
+        shell_cnt = shell_cnt - 1
+
     #print(f"Data lines (count): {shell_cnt:,}")
     # ---- Polars read --------------------------------------------------
     if Path(sumstat_file).suffix.lower() == ".zip":
