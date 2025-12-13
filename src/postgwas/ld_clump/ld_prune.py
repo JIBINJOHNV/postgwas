@@ -46,7 +46,7 @@ def ld_clump_by_regions(
     {{
         printf "SNP\\tCHR\\tBP\\tREF\\tALT\\tBETA\\tSE\\tNEF\\tAF\\tAFR\\tEAS\\tEUR\\tSAS\\tLP\\tNC\\tNCO\\tEUR_LDblock\\tAFR_LDblock\\tEAS_LDblock\\tBCSQ\\n"
         {bcftools} view --threads {nthreads} --min-alleles 2 --max-alleles 2 "{vcf_path}" | \
-        {bcftools} query -f '%CHROM:%POS:%REF:%ALT\\t%CHROM\\t%POS\\t%REF\\t%ALT\\t[%ES]\\t[%SE]\\t[%NEF]\\t[%AF]\\t[%AFR]\\t[%EAS]\\t[%EUR]\\t[%SAS]\\t[%LP]\\t[%NC]\\t[%NCO]\\t[%EUR_LDblock]\\t[%AFR_LDblock]\\t[%EAS_LDblock]\\t[%BCSQ]\\n' | \
+        {bcftools} query -f '%CHROM:%POS:%REF:%ALT\\t%CHROM\\t%POS\\t%REF\\t%ALT\\t[%ES]\\t[%SE]\\t[%NEF]\\t[%AF]\\t[%AFR]\\t[%EAS]\\t[%EUR]\\t[%SAS]\\t[%LP]\\t[%NC]\\t[%NCO]\\t%INFO/EUR_LDblock\\t%INFO/AFR_LDblock\\t%INFO/EAS_LDblock\\t[%BCSQ]\\n' | \
         sed 's|:|_|g'
     }} | gzip -c > "{raw_out}"
     """

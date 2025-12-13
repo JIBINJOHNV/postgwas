@@ -102,7 +102,6 @@ def _run_bcftools_step(args, log_file: Path, step_name: str):
             f"See log: {log_file}"
         )
 
-
 def run_bcftools_annot(
     output_dir: str,
     gwas_outputname: str,
@@ -152,6 +151,30 @@ def run_bcftools_annot(
 
     target_vcf = outdir / f"{gwas_outputname}_chr{chromosome}_{target_build}.vcf.gz"
     reject_vcf = outdir / f"{gwas_outputname}_chr{chromosome}_{target_build}_notlifted.vcf.gz"
+    
+    
+    tmp_norm = f"{output1_vcf}.pre_norm.vcf.gz"
+    tmp_annot = f"{output1_vcf}.annot.vcf.gz"
+
+    # -------------------------------------------------------
+    # Pre-normalisation
+    # -------------------------------------------------------
+    cmd0 = [
+        "bash", "-c",
+        f"bcftools norm -m-any -d exact \"{input_vcf}\" "
+        f"| bgzip -c > \"{tmp_norm}\" "
+        f"&& tabix -f -p vcf \"{tmp_norm}\" "
+    ]
+    _run_bcftools_step(cmd0, log_file, "annotate_norm_split")
+
+    # ❌ OLD (buggy):
+    # os.system(f"mv {tmp_norm} > {input_vcf}")
+    # ✅ NEW (correct move, also move index)
+    os.replace(tmp_norm, input_vcf)
+    tbi_tmp = f"{tmp_norm}.tbi"
+    tbi_final = f"{input_vcf}.tbi"
+    if os.path.exists(tbi_tmp):
+        os.replace(tbi_tmp, tbi_final)
 
     # -------------------------------------------------------
     # Step 1: dbSNP annotation
@@ -218,17 +241,17 @@ def run_bcftools_annot(
     # -------------------------------------------------------
     log(f"🧭 Step 4–6: liftover → filter SWAP → sort (pipelined)")
 
+    # ✅ NEW: correct +liftover syntax, no --reject-type z
     pipeline_cmd = f"""
-        bcftools +liftover --no-version \
-            --output-type u {input_vcf} -- \
-            --src-fasta-ref {genome_fasta_file} \
-            --fasta-ref {target_genome_fasta_file} \
-            --chain {chain_file} \
-            --reject {reject_vcf} \
-            --reject-type z \
-        | bcftools view -e 'INFO/SWAP && (INFO/SWAP==1 || INFO/SWAP==-1)' | bcftools norm -m-any -d exact \
+        bcftools +liftover \"{input_vcf}\" --no-version -Ou -- \
+            --src-fasta-ref \"{genome_fasta_file}\" \
+            --fasta-ref \"{target_genome_fasta_file}\" \
+            --chain \"{chain_file}\" \
+            --reject \"{reject_vcf}\" \
+        | bcftools view -e 'INFO/SWAP==1 || INFO/SWAP==-1' \
+        | bcftools norm -m-any -d exact \
         | bcftools sort -Oz \
-            -o {target_vcf} \
+            -o \"{target_vcf}\" \
             --write-index=tbi
     """
 

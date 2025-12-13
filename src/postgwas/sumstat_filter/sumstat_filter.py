@@ -7,7 +7,6 @@ from postgwas.utils.main import run_cmd
 
 
 
-
 def filter_gwas_vcf_bcftools(
     vcf_path: str,
     output_folder: str,
@@ -26,32 +25,33 @@ def filter_gwas_vcf_bcftools(
     mhc_start: int = 25000000,
     mhc_end: int = 34000000,
     threads: int = 5,
-    max_mem="5G",
+    max_mem: str = "5G",
 ) -> str:
-    """
-    Filter VCF using bcftools — NO stdout printing.
-    All logs are written to:
-        output_folder/logs/<output_prefix>_filter_gwas_vcf_bcftools.log
-    """
+
     # ============================================================
     # Create log directory + log buffer
     # ============================================================
     log_dir = Path(output_folder) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{output_prefix}_filter_gwas_vcf_bcftools.log"
+
     log_buffer = io.StringIO()
     def log_print(*args):
         log_buffer.write(" ".join(str(a) for a in args) + "\n")
+
     # ============================================================
     # Header: Start
+    # ============================================================
     if not os.path.exists(vcf_path):
         msg = f"❌ ERROR: Input VCF not found: {vcf_path}"
         log_print(msg)
         with open(log_file, "w") as f:
             f.write(log_buffer.getvalue())
         raise FileNotFoundError(msg)
+
     os.makedirs(output_folder, exist_ok=True)
     output_vcf = os.path.join(output_folder, f"{output_prefix}_filtered.vcf.gz")
+
     # ============================================================
     # Count variants before filtering
     # ============================================================
@@ -59,28 +59,39 @@ def filter_gwas_vcf_bcftools(
     pre = run_cmd(pre_cmd)
     try:
         pre_variants = int(pre.stdout.strip())
-    except:
+    except Exception:
         pre_variants = None
+
     log_print(f"📊 Variants BEFORE filtering: {pre_variants}")
     log_print("")
+
     # ============================================================
     # Build inclusion expression
     # ============================================================
     include_parts = []
+
     if pval_cutoff is not None:
-        include_parts.append(f"((MIN(FORMAT/LP) >= {pval_cutoff})")
+        include_parts.append(f"(FORMAT/LP >= {pval_cutoff})")
+
     if maf_cutoff is not None:
-        include_parts.append(f"(MIN(FORMAT/AF) >= {maf_cutoff} & MAX(FORMAT/AF) <= {1 - maf_cutoff})")
+        include_parts.append(
+            f"(FORMAT/AF >= {maf_cutoff} & FORMAT/AF <= {1 - maf_cutoff})"
+        )
+
     if info_cutoff is not None:
-        include_parts.append(f"(MIN(FORMAT/SI) >= {info_cutoff})")
+        include_parts.append(f"(FORMAT/SI >= {info_cutoff})")
+
     if allelefreq_diff_cutoff is not None:
         include_parts.append(
-            f"(abs(AVG(FORMAT/AF) - INFO/{external_af_name}) <= {allelefreq_diff_cutoff})"
+            f"(abs(FORMAT/AF - INFO/{external_af_name}) <= {allelefreq_diff_cutoff})"
         )
+
     include_expr = " & ".join(include_parts) if include_parts else "1"
+
     log_print("🔧 Include expression (bcftools -i):")
     log_print(include_expr)
     log_print("")
+
     # ============================================================
     # Build exclusion expression
     # ============================================================
@@ -88,37 +99,61 @@ def filter_gwas_vcf_bcftools(
         '((REF=="A" & ALT=="T") | (REF=="T" & ALT=="A") | '
         '(REF=="C" & ALT=="G") | (REF=="G" & ALT=="C"))'
     )
+
     exclude_expr = None
     if not include_palindromic:
         exclude_expr = (
             f"({palindromic_logic} & "
             f"(FORMAT/AF >= {palindromic_af_lower} & FORMAT/AF <= {palindromic_af_upper}))"
         )
+
     log_print("🔧 Exclude expression (bcftools -e):")
     log_print(str(exclude_expr))
     log_print("")
+
     # ============================================================
-    # Build pipeline
+    # Build bcftools pipeline
     # ============================================================
     cmd_parts = []
-    cmd_parts.append(f"bcftools view --threads {threads} -i '{include_expr}' {vcf_path}")
+
+    # 1) include expression
+    cmd_parts.append(
+        f"bcftools view --threads {threads} -i '{include_expr}' {vcf_path}"
+    )
+
+    # 2) remove indels if required
     if not include_indels:
         cmd_parts.append(f"bcftools view --threads {threads} --types snps")
+
+    # 3) exclude palindromic SNPs if required
     if exclude_expr:
         cmd_parts.append(f"bcftools view --threads {threads} -e '{exclude_expr}'")
+
+    # 4) remove MHC region if required
     if remove_mhc:
         mhc_bed = os.path.join(output_folder, f"{output_prefix}_mhc_exclude.bed")
         with open(mhc_bed, "w") as f:
             f.write(f"{mhc_chrom}\t{mhc_start}\t{mhc_end}\n")
         cmd_parts.append(f"bcftools view --threads {threads} -T ^{mhc_bed}")
-    cmd_parts.append(f"bcftools sort --temp-dir {output_folder} --max-mem {max_mem}")
+
+    # 5) sort + compress
+    cmd_parts.append(
+        f"bcftools sort --temp-dir {output_folder} --max-mem {max_mem}"
+    )
     cmd_parts.append("bgzip -c")
-    pipeline = " | ".join(cmd_parts) + f" > {output_vcf} && tabix -f -p vcf {output_vcf}"
+
+    # final pipeline
+    pipeline = (
+        " | ".join(cmd_parts)
+        + f" > {output_vcf} && tabix -f -p vcf {output_vcf}"
+    )
+
     log_print("🚀 Full bcftools pipeline:")
     log_print(pipeline)
     log_print("")
+
     # ============================================================
-    # Execute pipeline
+    # Run pipeline
     # ============================================================
     result = run_cmd(pipeline)
     if result.returncode != 0:
@@ -128,6 +163,7 @@ def filter_gwas_vcf_bcftools(
         with open(log_file, "w") as f:
             f.write(log_buffer.getvalue())
         raise RuntimeError("bcftools pipeline failed")
+
     # ============================================================
     # Count variants after filtering
     # ============================================================
@@ -135,15 +171,17 @@ def filter_gwas_vcf_bcftools(
     post = run_cmd(post_cmd)
     try:
         post_variants = int(post.stdout.strip())
-    except:
+    except Exception:
         post_variants = None
+
     log_print(f"✅ Variants AFTER filtering: {post_variants}")
     log_print(f"💾 Filtered VCF saved to: {output_vcf}")
     log_print("\n🎉 bcftools filtering completed.")
+
     # ============================================================
     # Write log file
     # ============================================================
     with open(log_file, "w") as f:
         f.write(log_buffer.getvalue())
-    return output_vcf
 
+    return output_vcf

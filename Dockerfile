@@ -13,8 +13,18 @@ RUN apt-get update && \
         gcc g++ make wget git curl bzip2 \
         libcurl4-openssl-dev libsuitesparse-dev \
         zlib1g-dev libbz2-dev liblzma-dev \
-        ca-certificates && \
+        ca-certificates pkg-config \
+        libssl-dev libxml2-dev && \
     rm -rf /var/lib/apt/lists/*
+
+# =====================================================================
+# Install R + required packages (for SuSiE)
+# =====================================================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        r-base r-base-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN Rscript -e "install.packages(c('data.table','argparse','susieR','Matrix','dplyr'), repos='https://cloud.r-project.org/')"
 
 # =====================================================================
 # Install Docker CLI (STATIC BINARY — avoids libc mismatch)
@@ -55,7 +65,6 @@ WORKDIR /opt/tools/htslib-1.22
 RUN ./configure --enable-libcurl --prefix=/usr/local && \
     make -j && make install
 
-# Install Freeseek plugins
 WORKDIR /opt/tools/bcftools-1.22/plugins
 RUN wget https://raw.githubusercontent.com/freeseek/score/master/score.c && \
     wget https://raw.githubusercontent.com/freeseek/score/master/score.h && \
@@ -93,16 +102,12 @@ RUN pip install --upgrade pip && \
     pip install --no-deps --no-cache-dir -e .
 
 # =====================================================================
-# IMPORTANT: Switch back to system bash BEFORE adding users
+# Switch back to host shell
 # =====================================================================
 SHELL ["/bin/bash", "-c"]
 
-USER root
-
-# Create runtime user (no need for "docker" group)
-RUN useradd -m pguser && \
-    usermod -aG root pguser
-
+# Create runtime user
+RUN useradd -m pguser
 USER pguser
 
 # =====================================================================

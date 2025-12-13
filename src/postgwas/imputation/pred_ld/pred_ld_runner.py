@@ -117,7 +117,7 @@ def get_memory_status() -> Tuple[Optional[float], Optional[float]]:
 #  CHROMOSOME HELPERS
 # =============================================================================
 
-BIG_CHROMS = {"1", "2", "3", "4", "5", "6"}
+BIG_CHROMS = {"1", "2", "3", "4", "5"}
 
 
 def is_big_chr(chr_id: str) -> bool:
@@ -142,10 +142,10 @@ def build_interleaved_chr_order(chromosomes: List) -> List[str]:
     """
     desired_order = [
         "1", "22", "21", "20",
-        "19", "2", "18", "17",
-        "16", "3", "15", "14",
-        "13", "4", "12", "11",
-        "5", "10", "9", "8",
+        "19","18", "2", "17",
+        "16", "15", "14", "3", 
+        "13","12", "4", "11",
+        "10", "5", "9", "8",
         "7", "6", "X"
     ]
     # Normalize input
@@ -434,6 +434,7 @@ def run_pred_ld_parallel(
     # Return True if at least one chromosome completed successfully
     return bool(succeeded)
 
+from typing import Optional  # make sure this is at top of file
 
 def process_pred_ld_results_all_parallel(
     folder_path: str,
@@ -463,13 +464,26 @@ def process_pred_ld_results_all_parallel(
     import pandas as pd
 
     # =====================================================================
-    # Safe dtype coercion
+    # Safe helpers
     # =====================================================================
     def coerce_dtypes(df: pl.DataFrame, dtype_map: dict) -> pl.DataFrame:
+        """Coerce columns to specific dtypes (safe casting)."""
         for col, dtype in dtype_map.items():
             if col in df.columns:
                 df = df.with_columns(pl.col(col).cast(dtype, strict=False))
         return df
+
+    def safe_drop(df: pl.DataFrame, cols) -> pl.DataFrame:
+        """
+        Drop only columns that exist.
+        cols can be a string or list of strings.
+        """
+        if isinstance(cols, str):
+            cols = [cols]
+        existing = [c for c in cols if c in df.columns]
+        if not existing:
+            return df
+        return df.drop(existing)
 
     # =====================================================================
     # Expected column types
@@ -530,7 +544,7 @@ def process_pred_ld_results_all_parallel(
                 print(f"⚠️ chr{chr_id}: missing files, skipping.")
                 return None, None
 
-            # Load files
+            # -------- Load files --------
             data_df = coerce_dtypes(
                 pl.read_csv(imp_file, separator="\t", infer_schema_length=5000),
                 data_types
@@ -545,15 +559,11 @@ def process_pred_ld_results_all_parallel(
             # -------------------------------------------------------------
             duplicated = data_df.filter(pl.col("snp").is_duplicated())
 
-            imputed_dups = (
-                duplicated.filter(pl.col("imputed") == 1)
-                .drop(["NC", "SS", "AF", "LP", "SI"], strict=False)
-            )
+            imputed_dups = duplicated.filter(pl.col("imputed") == 1)
+            imputed_dups = safe_drop(imputed_dups, ["NC", "SS", "AF", "LP", "SI"])
 
-            nonimp_dups = (
-                duplicated.filter(pl.col("imputed") != 1)
-                .drop(["NC", "SS", "AF", "LP", "SI"], strict=False)
-            )
+            nonimp_dups = duplicated.filter(pl.col("imputed") != 1)
+            nonimp_dups = safe_drop(nonimp_dups, ["NC", "SS", "AF", "LP", "SI"])
 
             beta_corr = z_corr = np.nan
             if imputed_dups.height > 0 and nonimp_dups.height > 0:
@@ -569,16 +579,16 @@ def process_pred_ld_results_all_parallel(
             # -------------------------------------------------------------
             # NON-IMPUTED summary statistics
             # -------------------------------------------------------------
-            nonimp = (
-                data_df.filter(pl.col("imputed") == 0)
-                .drop("R2", strict=False)
-            )
+            nonimp = data_df.filter(pl.col("imputed") == 0)
+            nonimp = safe_drop(nonimp, "R2")
 
             if "LP" in nonimp.columns:
-                nonimp = nonimp.with_columns((10 ** (-pl.col("LP"))).alias("p_value"))
-                nonimp = nonimp.drop("LP", strict=False)
+                nonimp = nonimp.with_columns(
+                    (10 ** (-pl.col("LP"))).alias("p_value")
+                )
+                nonimp = safe_drop(nonimp, "LP")
 
-            # Leave NC, SS, AF, SI as-is for later propagation
+            # Leave NC, SS, AF, SI for later propagation
 
             # -------------------------------------------------------------
             # IMPUTED SNPs (initial cleaning)
@@ -586,13 +596,17 @@ def process_pred_ld_results_all_parallel(
             imputed = (
                 data_df.filter(pl.col("imputed") == 1)
                 .filter(~pl.col("snp").is_in(nonimp["snp"]))
-                .drop(["R2", "NC", "SS", "AF", "LP", "SI"], strict=False)
             )
+            imputed = safe_drop(imputed, ["R2", "NC", "SS", "AF", "LP", "SI"])
 
-            # =====================================================================
+            # =================================================================
             # ⭐ SAMPLE-SIZE PROPAGATION (NC, SS, AF, SI for imputed SNPs)
-            # =====================================================================
-            donor_stats = nonimp.select(["snp", "NC", "SS", "AF", "SI"]).drop_nulls(subset=["NC", "SS"])
+            # =================================================================
+            donor_stats = (
+                nonimp
+                .select(["snp", "NC", "SS", "AF", "SI"])
+                .drop_nulls(subset=["NC", "SS"])
+            )
 
             linked = info_df.join(
                 donor_stats,
@@ -747,11 +761,17 @@ def process_pred_ld_results_all_parallel(
     # =====================================================================
     # Cleanup original files
     # =====================================================================
-    subprocess.run(f"cat {folder_path}/imputation_results_chr*.txt | gzip -c > {output_folder}/{output_prefix}_imputation_results.txt.gz",
-                   shell=True, check=False)
+    subprocess.run(
+        f"cat {folder_path}/imputation_results_chr*.txt | gzip -c > {output_folder}/{output_prefix}_imputation_results.txt.gz",
+        shell=True,
+        check=False,
+    )
 
-    subprocess.run(f"cat {folder_path}/LD_info_TOP_LD_chr*.txt | gzip -c > {output_folder}/{output_prefix}_LD_info_TOP_LD.txt.gz",
-                   shell=True, check=False)
+    subprocess.run(
+        f"cat {folder_path}/LD_info_TOP_LD_chr*.txt | gzip -c > {output_folder}/{output_prefix}_LD_info_TOP_LD.txt.gz",
+        shell=True,
+        check=False,
+    )
 
     subprocess.run(f"rm -f {folder_path}/imputation_results_chr*.txt", shell=True, check=False)
     subprocess.run(f"rm -f {folder_path}/LD_info_TOP_LD_chr*.txt", shell=True, check=False)
