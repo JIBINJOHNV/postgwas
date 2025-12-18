@@ -4,7 +4,8 @@ from rich_argparse import RichHelpFormatter
 # Assuming utility/logic imports
 from postgwas.utils.main import validate_path 
 from postgwas.annot_ldblock.annot_ldblock import annotate_ldblocks 
-
+from pathlib import Path
+from postgwas.utils.main import require_executable
 
 
 
@@ -12,43 +13,41 @@ from postgwas.annot_ldblock.annot_ldblock import annotate_ldblocks
 # ---------------------------------------------------------
 # 2. EXECUTABLE LOGIC (Engines)
 # ---------------------------------------------------------
-
-def run_annot_ldblock(args):
+def run_annot_ldblock(args, ctx=None):
     """
-    Executes the Step 2 core logic (The Engine). Used by 'direct' mode and Step 3.
+    Executes LD-block annotation.
+    Works in both direct mode and pipeline mode.
     """
-    # Custom Validation Check (since required=True was removed from parser for inheritance safety)
+    
+    # -------------------------------------------------
+    # Validation
+    # -------------------------------------------------
     if not args.vcf or not args.ld_region_dir:
-        raise ValueError("Step 2 Error: --vcf and --ld-dir arguments are required.")
-    annotate_ldblocks(
+        raise ValueError("annot_ldblock: --vcf and --ld-dir arguments are required.")
+
+    if not args.outdir:
+        raise ValueError("annot_ldblock: --outdir is required for pipeline execution.")
+
+    # -------------------------------------------------
+    # Run engine
+    # -------------------------------------------------
+    outputs = annotate_ldblocks(
         vcf_path=args.vcf,
+        outdir=args.outdir,
         genome_version=args.genome_version,
         ld_dir=args.ld_region_dir,
-        max_memory_gb=args.max_mem, 
         populations=tuple(args.ld_block_population),
-        n_threads=args.nthreads, 
+        n_threads=args.nthreads,
+        max_memory_gb=args.max_mem,
+        smple_id=args.sample_id
     )
-    return True
 
-def run_annot_ldblock_pipeline(args):
-    pass
-#     """
-#     Executes the pipeline chain: Step 1 (Harmonisation) -> Step 2 (Annotation).
-#     """
-#     print("🚀 Initiating Pipeline Mode (Step 1 -> Step 2)...")
-    
-#     # --- STEP 1 EXECUTION ---
-#     try:
-#         run_harmonisation(args) 
-#         print("✅ Step 1 (Harmonisation) complete.")
-#     except Exception as e:
-#         raise RuntimeError(f"Pipeline failed in Step 1: {e}")
-
-#     # --- STEP 2 EXECUTION ---
-#     try:
-#         run_annot_ldblock(args)
-#     except Exception as e:
-#         raise RuntimeError(f"Pipeline failed in Step 2: {e}")
-    
-#     print("✅ Full Pipeline Complete.")
-
+    # -------------------------------------------------
+    # Pipeline mode: register outputs
+    # -------------------------------------------------
+    if ctx is not None:
+        ctx["annot_ldblock"] = outputs
+    # -------------------------------------------------
+    # Direct mode: still succeed cleanly
+    # -------------------------------------------------
+    return outputs

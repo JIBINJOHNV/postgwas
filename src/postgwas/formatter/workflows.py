@@ -3,6 +3,8 @@ import argparse
 import sys
 from pathlib import Path
 from rich_argparse import RichHelpFormatter
+from postgwas.utils.main import run_cmd,require_executable
+
 
 # ---- Formatter engines ----
 from postgwas.formatter.main import (
@@ -17,13 +19,24 @@ from postgwas.formatter.main import (
 # ============================================================
 #  DIRECT MODE ENGINE
 # ============================================================
-def run_formatter_direct(args):
-    outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
+from pathlib import Path
+import sys
 
-    # args.format is a LIST when nargs="+"
-    selected_formats = args.format  
-    # A map of format → function
+def run_formatter_direct(args, ctx=None):
+    """
+    Formatter engine.
+    Works in both direct mode and pipeline mode.
+    Returns structured downstream inputs.
+    """
+    # -------------------------------------------------
+    # Dependency checks (FAIL FAST)
+    # -------------------------------------------------
+    outdir = Path(args.outdir)
+    downstream_dir = outdir / "4_downstream_inputs"
+    downstream_dir.mkdir(parents=True, exist_ok=True)
+
+    selected_formats = args.format  # nargs="+"
+
     format_map = {
         "magma": create_magma_inputs,
         "finemap": create_finemap_inputs,
@@ -31,47 +44,39 @@ def run_formatter_direct(args):
         "ldsc": create_ldsc_inputs,
     }
 
+    outputs = {
+        "magma": {},
+        "finemap": {},
+        "ldsc": {},
+        "ldpred": {},
+    }
+
     try:
         for fmt in selected_formats:
             if fmt not in format_map:
                 raise ValueError(f"Unknown format: {fmt}")
 
-            #print(f"\n➡️  Converting to {fmt.upper()} format...")
-            format_map[fmt](args)
-            #print(f"✅ Finished {fmt.upper()} conversion.")
+            # -------------------------------------------------
+            # Each formatter returns a dict → capture it
+            # -------------------------------------------------
+            result = format_map[fmt](args)
+
+            if not isinstance(result, dict):
+                raise ValueError(
+                    f"Formatter '{fmt}' must return a dict, got {type(result)}"
+                )
+
+            outputs[fmt] = result
 
     except Exception as e:
-        print(f"\n❌ Formatter Failed: {e}", file=sys.stderr)
+        print(f"\n❌ Formatter failed: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # -------------------------------------------------
+    # Pipeline mode: register outputs
+    # -------------------------------------------------
+    if ctx is not None:
+        ctx["formatter"] = outputs
+    return outputs
 
-# ============================================================
-#  PIPELINE MODE ENGINE
-# ============================================================
-def run_formatter_pipeline(args):
-    print("\n🚀 Running Full Pipeline: Harmonisation → LD Blocks → QC Filter → Formatter")
-
-    # ---------------------------------------------------------
-    # Step 1 + Step 2 (Harmonisation + LD block annotation)
-    # ---------------------------------------------------------
-    #run_annot_ldblock_pipeline(args)
-
-    # ---------------------------------------------------------
-    # Step 3 (Summary Statistics QC)
-    # ---------------------------------------------------------
-    #run_sumstat_qc_pipeline(args)
-
-    # ---------------------------------------------------------
-    # Step 4 (Formatter)
-    # ---------------------------------------------------------
-    print("\n=== Running Formatter (Pipeline Mode) ===")
-
-    outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-
-    if args.format == "magma":
-        create_magma_inputs(args)
-
-    elif args.format == "finemap":
-        create_finemap_inputs(args)
 

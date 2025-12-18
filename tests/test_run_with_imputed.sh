@@ -15,9 +15,7 @@
 
 
 # docker buildx build --no-cache  --platform=linux/amd64 -t jibinjv/postgwas:1.0 .
-
 docker buildx build --platform=linux/amd64 -t jibinjv/postgwas:1.0 .
-
 
 
 sample_id="ADHD2022_iPSYCH_deCODE_PGC"
@@ -26,7 +24,7 @@ resourse_folder="/Users/JJOHN41/Documents/software_resources/resourses/postgwas/
 genome_version="GRCh37"
 
 
-docker run --platform=linux/amd64 \
+docker run --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents/ \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -36,7 +34,7 @@ docker run --platform=linux/amd64 \
       --config /Users/JJOHN41/Documents/developing_software/postgwas/tests/example_input_file.csv \
       --defaults /Users/JJOHN41/Documents/developing_software/postgwas/tests/harmonisation.yaml
 
-docker run --platform=linux/amd64 \
+docker run  --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents/ \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -60,8 +58,7 @@ docker run --platform=linux/amd64 \
         --mhc-start 25000000 \
         --mhc-end 34000000  
 
-
-docker run --platform=linux/amd64 \
+docker run  --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents/ \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -74,7 +71,7 @@ docker run --platform=linux/amd64 \
     --outdir ${base_dir}/3_format_inputs_GRCh38 \
     --format ldpred
 
-docker run --platform=linux/amd64 \
+docker run  --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -94,7 +91,7 @@ docker run --platform=linux/amd64 \
         --ref TOP_LD \
         --corr_method pearson
 
-docker run --platform=linux/amd64 \
+docker run  --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents/ \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -105,7 +102,7 @@ docker run --platform=linux/amd64 \
       --defaults /Users/JJOHN41/Documents/developing_software/postgwas/tests/harmonisation.yaml
 
 
-docker run --platform=linux/amd64 \
+docker run  --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents/ \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -118,7 +115,7 @@ docker run --platform=linux/amd64 \
         --ld-region-dir ${resourse_folder}ld_blocks/ 
 
 
-docker run --platform=linux/amd64 \
+docker run  --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents/ \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -143,7 +140,7 @@ docker run --platform=linux/amd64 \
         --mhc-end 34000000  
 
 
-docker run --platform=linux/amd64 \
+docker run  --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents/ \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -157,7 +154,7 @@ docker run --platform=linux/amd64 \
     --format magma finemap ldpred ldsc
 
 
-docker run --platform=linux/amd64 \
+docker run  --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -179,7 +176,8 @@ docker run --platform=linux/amd64 \
         --docker-image jibinjv/ldsc:1.0.1 \
         --platform linux/amd64
 
-docker run --platform=linux/amd64 \
+
+docker run  --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -195,7 +193,8 @@ docker run --platform=linux/amd64 \
     --population EUR 
 
 
-docker run --platform=linux/amd64 \
+
+docker run  --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -216,8 +215,7 @@ docker run --platform=linux/amd64 \
     --gene_model snp-wise=mean \
     --n_sample_col N_COL
 
-
-docker run --platform=linux/amd64 \
+docker run  --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -233,7 +231,7 @@ docker run --platform=linux/amd64 \
       --magama_gene_assoc_raw ${base_dir}/7_magma_gene_pathway_assoc/${sample_id}_magma_35up_10down.genes.raw 
 
 
-docker run --platform=linux/amd64 \
+docker run  --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -245,9 +243,10 @@ docker run --platform=linux/amd64 \
     --outdir ${base_dir}/8_pops_analysis/ \
     --magma_assoc_prefix ${base_dir}/7_magma_gene_pathway_assoc/${sample_id}_magma_35up_10down \
     --feature_mat_prefix ${resourse_folder}/pops/features_munged/pops_features \
-    --pops_gene_loc_file ${resourse_folder}/pops/GRCh37_gene_annot_jun10.txt \
+    --pops_gene_loc_file ${resourse_folder}/pops/GRCh37_gene_annot_jun10.txt 
 
-docker run --platform=linux/amd64 \
+
+docker run  --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -270,7 +269,8 @@ docker run --platform=linux/amd64 \
     --finemap_mhc_end 35000000 \
     --finemap_ld_ref ${resourse_folder}/onekg_plinkfiles/GRCh37/EUR.chr1_22.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes_multiallele_uniqid_Grch37_maf0001
 
-docker run --platform=linux/amd64 \
+
+docker run  --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \
@@ -283,8 +283,7 @@ docker run --platform=linux/amd64 \
   --out ${base_dir}/10_flames_analysis
 
 
-
-docker run --platform=linux/amd64 \
+docker run  --rm --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.0 \

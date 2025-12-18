@@ -1,14 +1,27 @@
 
 from postgwas.sumstat_filter.sumstat_filter import filter_gwas_vcf_bcftools
 from pathlib import Path
+from postgwas.utils.main import require_executable
 
 
-def run_sumstat_filter_direct(args):
+def run_sumstat_filter_direct(args,ctx=None):
     # Your logic — YOU said do not enforce checks here
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    filter_gwas_vcf_bcftools(
+    require_executable("bcftools")
+    require_executable("tabix")
+
+    # -------------------------------------------------
+    # Validation
+    # -------------------------------------------------
+    if not args.vcf :
+        raise ValueError("run_sumstat_filter_direct: --vcf arguments are required.")
+
+    if not args.outdir:
+        raise ValueError("run_sumstat_filter_direct: --outdir is required for execution.")
+
+    outputs=filter_gwas_vcf_bcftools(
         vcf_path=args.vcf,
         output_folder=str(outdir),
         output_prefix=args.sample_id,
@@ -26,15 +39,9 @@ def run_sumstat_filter_direct(args):
         threads=args.nthreads,
         max_mem=args.max_mem
     )
-
-    print("✅ Step 3 QC Filtering Completed.")
-
-
-# ---------------------------------------------------------
-# Step-1 → Step-2 → Step-3 pipeline
-# ---------------------------------------------------------
-def run_sumstat_filter_pipeline(args):
-    print("🚀 Running Harmonisation → Annot LDBlock → Sumstat QC Pipeline")
-#     run_annot_ldblock_pipeline(args)  # includes step-1 + step-2
-#     run_sumstat_qc(args)
-#     print("🎉 Full Pipeline Completed.")
+    # -------------------------------------------------
+    # Pipeline mode: register outputs
+    # -------------------------------------------------
+    if ctx is not None:
+        ctx["sumstat_filter"] = outputs
+    return outputs

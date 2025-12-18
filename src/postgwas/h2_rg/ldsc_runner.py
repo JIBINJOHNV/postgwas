@@ -52,9 +52,12 @@ def _d(p: Path) -> str:
 # =========================================================
 # DOCKER RUNNER
 # =========================================================
+# =========================================================
+# DOCKER RUNNER
+# =========================================================
 def run_docker(command_list, log_file, step_name):
     """
-    Execute docker command and stream output into console + log file.
+    Execute docker command and stream output ONLY into the log file.
     """
     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open(log_file, "a") as lf:
@@ -67,13 +70,13 @@ def run_docker(command_list, log_file, step_name):
         with subprocess.Popen(
             command_list,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.STDOUT, # Redirect stderr to stdout so we capture errors too
             text=True,
             bufsize=1
         ) as proc, open(log_file, "a") as lf:
 
             for line in proc.stdout:
-                print(line, end="")
+                # print(line, end="")  <--- REMOVED THIS LINE to silence console output
                 lf.write(line)
 
             exit_code = proc.wait()
@@ -85,9 +88,45 @@ def run_docker(command_list, log_file, step_name):
 
     except subprocess.CalledProcessError as e:
         print_error(step_name, f"LDSC Docker process exited with code {e.returncode}")
-
+        # Optionally print the last few lines of the log if it failed
+        print(f"   See log for details: {log_file}")
         raise e
 
+
+# =========================================================
+# HELPER: LOG PARSER
+# =========================================================
+def extract_ldsc_metrics(log_file):
+    """
+    Parses an LDSC log file to extract h2, Intercept, and Ratio.
+    Returns a formatted string or 'Not found'.
+    """
+    metrics = {
+        "h2": "N/A",
+        "intercept": "N/A",
+        "ratio": "N/A"
+    }
+    
+    path = Path(log_file)
+    if not path.exists():
+        return metrics
+
+    try:
+        with path.open("r") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("Total Liability scale h2:"):
+                    metrics["h2"] = line.split(":", 1)[1].strip()
+                elif line.startswith("Total Observed scale h2:"):
+                    metrics["h2"] = line.split(":", 1)[1].strip()
+                elif line.startswith("Intercept:"):
+                    metrics["intercept"] = line.split(":", 1)[1].strip()
+                elif line.startswith("Ratio:"):
+                    metrics["ratio"] = line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+        
+    return metrics
 
 # =========================================================
 # MAIN EXECUTION WRAPPER
@@ -101,17 +140,16 @@ def run_ldsc(
     platform: str = "linux/amd64",
     info_min: float = 0.7,
     maf_min: float = 0.01,
-    samp_prev: float = 0.5,
-    pop_prev: float = 0.01,
+    samp_prev: float = None,  # Changed default to None
+    pop_prev: float = None,   # Changed default to None
 ):
     """
     Full LDSC workflow:
       1) munge_sumstats.py  → prefix.sumstats.gz
-      2) ldsc.py --h2
-      3) ldsc.py --h2 (liability scale)
+      2) ldsc.py --h2 (Liability scale) -> OPTIONAL (Run only if samp_prev & pop_prev provided)
+      3) ldsc.py --h2 (Observed scale) -> ALWAYS RUN
 
     All steps run inside an external LDSC docker image.
-    Only requirement: /var/run/docker.sock must be mounted into PostGWAS container.
     """
 
     # -----------------------------------------------------
@@ -172,31 +210,39 @@ def run_ldsc(
         sys.exit(1)
 
     # ----------------------------------------------------------------------------
-    # STEP 2 — LDSC (Liability-scale)
+    # STEP 2 — LDSC (Liability-scale) [OPTIONAL]
     # ----------------------------------------------------------------------------
-    print_step("2. LDSC Heritability (Liability Scale)")
+    out_liab_log = "Skipped"
+    liab_metrics = {"h2": "N/A", "intercept": "N/A", "ratio": "N/A"}
 
-    out_liab = f"{munged_prefix}_Liability_scale_h2"
+    if samp_prev is not None and pop_prev is not None:
+        print_step("2. LDSC Heritability (Liability Scale)")
 
-    cmd_liability = [
-        "docker", "run",
-        f"--platform={platform}",
-        "--rm",
-        "-v", mount_arg,
-        docker_image,
-        "ldsc.py",
-        "--h2", munged_file,
-        "--ref-ld-chr", _d(ldscore_dir) + "/",
-        "--w-ld-chr", _d(ldscore_dir) + "/",
-        "--out", out_liab,
-        "--samp-prev", str(samp_prev),
-        "--pop-prev", str(pop_prev),
-    ]
+        out_liab = f"{munged_prefix}_Liability_scale_h2"
 
-    run_docker(cmd_liability, log_file, "LDSC_Liability_scale_HERITABILITY")
+        cmd_liability = [
+            "docker", "run",
+            f"--platform={platform}",
+            "--rm",
+            "-v", mount_arg,
+            docker_image,
+            "ldsc.py",
+            "--h2", munged_file,
+            "--ref-ld-chr", _d(ldscore_dir) + "/",
+            "--w-ld-chr", _d(ldscore_dir) + "/",
+            "--out", out_liab,
+            "--samp-prev", str(samp_prev),
+            "--pop-prev", str(pop_prev),
+        ]
+
+        run_docker(cmd_liability, log_file, "LDSC_Liability_scale_HERITABILITY")
+        out_liab_log = f"{out_liab}.log"
+        liab_metrics = extract_ldsc_metrics(out_liab_log)
+    else:
+        print(f"\n{Colors.WARNING}⚠️ Skipping Liability Scale Analysis (Missing samp_prev/pop_prev){Colors.ENDC}")
 
     # ----------------------------------------------------------------------------
-    # STEP 3 — LDSC (Observed scale)
+    # STEP 3 — LDSC (Observed scale) [ALWAYS RUN]
     # ----------------------------------------------------------------------------
     print_step("3. LDSC Heritability (Observed Scale)")
 
@@ -216,19 +262,32 @@ def run_ldsc(
     ]
 
     run_docker(cmd_obs, log_file, "LDSC_Observed_scale_HERITABILITY")
+    out_obs_log = f"{out_obs}.log"
+    obs_metrics = extract_ldsc_metrics(out_obs_log)
 
     # ----------------------------------------------------------------------------
     # COMPLETED
     # ----------------------------------------------------------------------------
     print(f"\n{Colors.GREEN}{Colors.BOLD}🎉 LDSC PIPELINE COMPLETED!{Colors.ENDC}")
-    print(f"• Log file: {log_file}")
-    print(f"• Munged:   {munged_file}")
-    print(f"• H2 (Liability): {out_liab}.log")
-    print(f"• H2 (Observed):   {out_obs}.log")
+    
+    # Print Table-like Summary
+    print(f"\n{Colors.BOLD}🔹 HERITABILITY RESULTS:{Colors.ENDC}")
+    print("-" * 60)
+    print(f"{'METRIC':<25} | {'OBSERVED SCALE':<15} | {'LIABILITY SCALE':<15}")
+    print("-" * 60)
+    print(f"{'h2 (Heritability)':<25} | {obs_metrics['h2']:<15} | {liab_metrics['h2']:<15}")
+    print(f"{'Intercept':<25} | {obs_metrics['intercept']:<15} | {liab_metrics['intercept']:<15}")
+    print(f"{'Ratio':<25} | {obs_metrics['ratio']:<15} | {liab_metrics['ratio']:<15}")
+    print("-" * 60)
+
+    print(f"\n{Colors.BOLD}📂 OUTPUT FILES:{Colors.ENDC}")
+    print(f"   • Munged:   {munged_file}")
+    print(f"   • Logs:     {log_file}")
+    print(f"   • H2 (Obs): {out_obs_log}")
+    if samp_prev is not None:
+        print(f"   • H2 (Liab):{out_liab_log}")
 
     return {
         "munged_sumstats": munged_file,
-        "h2_liability": f"{out_liab}.log",
-        "h2_observed": f"{out_obs}.log",
-        "log": str(log_file)
-    }
+        "h2_liability": out_liab_log,
+        "h2_observed": out_obs_log    }

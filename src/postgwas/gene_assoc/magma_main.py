@@ -10,6 +10,8 @@ from multiprocessing import Pool, cpu_count
 from functools import partial
 from typing import Optional
 
+from postgwas.utils.main import decide_magma_batches_from_annot
+
 # ==========================================
 # 0. LOGGING HELPER
 # ==========================================
@@ -67,7 +69,6 @@ def run_magma_analysis(
     window_downstream: int = 10,
     gene_model: str = "snp-wise=mean",
     n_sample_col: str = "N_COL",
-    num_batches: int = 6,
     num_cores: int = 6,
     seed: int = 10,
     magma: str = "magma",
@@ -107,6 +108,8 @@ def run_magma_analysis(
         "--out", str(gene_annot_out),
     ]
     run_subprocess_with_logging(annotate_cmd, logger)
+    
+    num_batches=decide_magma_batches_from_annot(annot_file=f"{gene_annot_out}.genes.annot")
     # ---------------------------------------------------------
     # Step 2 — Gene analysis (batched)
     # ---------------------------------------------------------
@@ -344,7 +347,6 @@ def magma_analysis_pipeline(
 
     # MAGMA parameters
     threads: int = 6,
-    num_batches: int = 6,
     window_upstream: int = 35,
     window_downstream: int = 10,
     gene_model: str = "snp-wise=mean",
@@ -363,7 +365,7 @@ def magma_analysis_pipeline(
     # Step 1 — Run MAGMA core analysis
     # ---------------------------------------------------------
     print("🔹 Running MAGMA core analysis...")
-    run_magma_analysis(
+    magma_gene_file=run_magma_analysis(
         magma_analysis_folder=output_dir,
         sample_id=sample_id,
         ld_ref=ld_ref,
@@ -373,7 +375,6 @@ def magma_analysis_pipeline(
         geneset_file=geneset_file,
         log_file=log_file,
         n_sample_col=n_sample_col,
-        num_batches=num_batches,
         num_cores=threads,
         window_upstream=window_upstream,
         window_downstream=window_downstream,
@@ -402,15 +403,26 @@ def magma_analysis_pipeline(
             corrected_df=corrected_df,
             log_file=log_file,
         )
-        return gene_set_summary
+        return {
+            "magma_pathway": str(gene_set_summary),
+            "magma_genes_raw": f"{magma_gene_file['merged_prefix']}.genes.raw",
+            "magma_genes_out": f"{magma_gene_file['merged_prefix']}.genes.out",
+        }
     else:
         print("Pathway analysis not performed because the gene set file was not provided or does not exist.")
+        return {
+            "magma_genes_raw": f"{magma_gene_file['merged_prefix']}.genes.raw",
+            "magma_genes_out": f"{magma_gene_file['merged_prefix']}.genes.out",
+            "magma_genes_prefix": f"{magma_gene_file['merged_prefix']}",
+        }
 
 
 
+# return {
+#     "gene_annot": str(gene_annot_out),
+#     "merged_prefix": str(merged_prefix),
+# }
 
-
-        
 
 
     # magma_Analysis_folder <- glue("{output_folder}/magma_Analysis/{sample_id}/")

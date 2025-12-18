@@ -10,7 +10,8 @@ from postgwas.clis.common_cli import (
         get_defaultresourse_parser,
         get_inputvcf_parser,
         get_genomeversion_parser,
-        get_annot_ldblock_parser )
+        get_annot_ldblock_parser,
+        get_common_out_parser)
 
 
 
@@ -26,6 +27,7 @@ def main():
             get_inputvcf_parser(),
             get_genomeversion_parser(),
             get_annot_ldblock_parser(add_help=False),
+            get_common_out_parser()
         ],
     )
 
@@ -34,7 +36,7 @@ def main():
         "-h", "--help",
         action="help",
         default=argparse.SUPPRESS,
-        help="Show help for annot_ldblock (direct mode)."
+        help="Show help for annot_ldblock"
     )
 
     # -----------------------------

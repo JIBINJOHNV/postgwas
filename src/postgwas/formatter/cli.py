@@ -20,7 +20,8 @@ from postgwas.clis.common_cli import (
     get_defaultresourse_parser,
     get_inputvcf_parser,
     get_common_out_parser,
-    get_formatter_parser
+    get_formatter_parser,
+    get_bcftools_binary_parser
 )
 
 from postgwas.formatter.workflows import run_formatter_direct
@@ -40,6 +41,7 @@ def main(argv=None):
             get_inputvcf_parser(),
             get_formatter_parser(),
             get_common_out_parser(),
+            get_bcftools_binary_parser()
         ],
     )
 

@@ -1,9 +1,8 @@
 import subprocess
-
 import argparse
-import subprocess
 from pathlib import Path
 import sys
+import pandas as pd
 
 def run_flames_direct(args):
     """
@@ -13,11 +12,6 @@ def run_flames_direct(args):
       - MAGMA covariate output
       - PoPS score file
     """
-
-    from pathlib import Path
-    import subprocess
-    import pandas as pd
-
     # ==============================================================
     # Helper: Create FLAMES indexfile
     # ==============================================================
@@ -121,11 +115,6 @@ def run_flames_direct(args):
         --weight {weight} \
         --modelpath "{modelpath}"
     """
-
-    print("🔥 Running FLAMES scoring…")
     subprocess.run(cmd_score, shell=True, check=True)
-
     print("🎉 FLAMES direct mode completed successfully!")
 
-def run_flames_pipeline():
-    pass

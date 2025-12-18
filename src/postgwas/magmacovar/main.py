@@ -78,7 +78,7 @@ def run_magma_covariates(
         # direction only valid if model provided
         if direction:
             write_log(f"Using direction: {direction}")
-            cmd.append(f"direction={direction}")
+            cmd.append(f"direction-covar={direction}")
 
     # Case B — model None, direction provided (invalid in MAGMA)
     elif direction:

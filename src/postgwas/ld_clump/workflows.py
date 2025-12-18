@@ -7,12 +7,12 @@ def run_ld_clump_standard_direct():
     pass 
 
 
-def run_ld_clump_direct(args):
+def run_ld_clump_direct(args, ctx=None):
     """
     Wrapper that dispatches the correct direct-mode LD clumping function.
     """
     if args.ld_mode == "by_regions":
-        ld_clump_by_regions(
+        outputs=ld_clump_by_regions(
             sumstat_vcf=args.vcf,
             output_folder=args.outdir,
             sample_name=args.sample_id,
@@ -20,6 +20,9 @@ def run_ld_clump_direct(args):
             nthreads=args.nthreads,
             bcftools=args.bcftools
         )
+        if ctx is not None:
+            ctx["ld_clump"] = outputs
+        return outputs
 
     elif args.ld_mode == "standard":
         return run_ld_clump_standard_direct(

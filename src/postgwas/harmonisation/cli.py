@@ -69,13 +69,13 @@ def run_harmonisation(args):
         raise RuntimeError(f"❌ ERROR: Failed to load user config file '{args.config}'. Reason: {e}")
 
     # Run pipeline logic
-    postgwas_qc_df = run_harmonisation_pipeline(
+    harmonised_vcfs = run_harmonisation_pipeline(
         sample_column_dict=user_cfg,
         default_cfg=args.defaults,
         nthreads=args.nthreads
     )
     
-    return postgwas_qc_df
+    return harmonised_vcfs
 
 # --- 3. STANDALONE ENTRY POINT (The "CLI") ---
 def main():

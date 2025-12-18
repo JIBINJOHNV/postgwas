@@ -23,28 +23,13 @@ from postgwas.clis.common_cli import safe_parse_args
 # =============================
 from postgwas.clis.common_cli import (
     get_defaultresourse_parser,
-    get_inputvcf_parser,
-    get_genomeversion_parser,
     get_common_out_parser,
-    get_common_magma_covar_parser,
-    get_common_magma_assoc_parser,
-    get_common_sumstat_filter_parser,
     get_common_pops_parser,
-    get_common_susie_arguments,
-    get_finemap_method_parser,
-    get_magma_binary_parser,
-    get_plink_binary_parser,
-    get_bcftools_binary_parser,
-)
-
-# MAGMA Covariate execution
-from postgwas.magmacovar.workflows import (
-    run_magma_covar_direct,
-    run_magma_covar_pipeline,
 )
 
 
-from postgwas.pops.workflows import run_pops_direct, run_pops_pipeline
+
+from postgwas.pops.workflows import run_pops_direct
 # =====================================================================
 #   DIRECT MODE PARSER
 # =====================================================================

@@ -27,7 +27,18 @@ def filter_gwas_vcf_bcftools(
     threads: int = 5,
     max_mem: str = "5G",
 ) -> str:
-
+    
+    vcf_name = os.path.basename(vcf_path)
+    genomeversion = None
+    if "GRCh38" in vcf_name:
+        genomeversion = "GRCh38"
+    elif "GRCh37" in vcf_name:
+        genomeversion = "GRCh37"
+    output_prefix = (
+        f"{output_prefix}_{genomeversion}"
+        if genomeversion
+        else output_prefix)
+    
     # ============================================================
     # Create log directory + log buffer
     # ============================================================
@@ -184,4 +195,6 @@ def filter_gwas_vcf_bcftools(
     with open(log_file, "w") as f:
         f.write(log_buffer.getvalue())
 
-    return output_vcf
+    return {
+        "filtered_vcf": output_vcf
+    }

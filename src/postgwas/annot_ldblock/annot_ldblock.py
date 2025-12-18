@@ -3,10 +3,12 @@
 annot_ldblock.py — Annotate GWAS VCFs with population-specific LD blocks.
 """
 
-import subprocess
+import subprocess,os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from postgwas.utils.main import run_cmd
+from postgwas.utils.main import run_cmd,require_executable
+
+
 
 
 
@@ -15,23 +17,36 @@ from postgwas.utils.main import run_cmd
 # ------------------------------------------------------------
 def annotate_ldblocks(
     vcf_path: str,
+    outdir: str,
     genome_version: str = "GRCh37",
     ld_dir: str = "/Users/JJOHN41/Documents/software_resources/resourses/postgwas/ld_blocks",
     populations=("EUR", "AFR", "EAS"),
     max_memory_gb='6G',
-    n_threads=2
-) -> None:
+    n_threads=2,
+    smple_id="sample_id"
+) -> dict:
     """
     Sequentially annotate a VCF with multiple population LD-block INFO tags.
     Overwrites the input file safely. Cross-platform (macOS / Ubuntu).
     """
+    # -------------------------------------------------
+    # Dependency checks (FAIL FAST)
+    # -------------------------------------------------
+    require_executable("bcftools")
+    require_executable("tabix")
+    
+    current_vcf = Path(vcf_path)
+    if not current_vcf.exists():
+        raise FileNotFoundError(f"❌ Input VCF not found: {current_vcf}")
 
-    vcf = Path(vcf_path)
-    if not vcf.exists():
-        raise FileNotFoundError(f"❌ Input VCF not found: {vcf}")
 
-    tmp_vcf = vcf.with_suffix(".tmp.vcf.gz")
+    step_outdir = Path(outdir)
+    step_outdir.mkdir(parents=True, exist_ok=True)
 
+    annotated_vcf = step_outdir / f"{smple_id}_ldblock.vcf.gz"
+    os.system(f"cp {current_vcf} {annotated_vcf}")
+    tmp_vcf = annotated_vcf.with_suffix(".tmp.vcf.gz")
+    
     for pop in populations:
         # -------------------------------
         # Validate LD block file
@@ -63,14 +78,17 @@ def annotate_ldblocks(
             "-H", header_line,
             "-O", "z",
             "-o", str(tmp_vcf),
-            str(vcf),
+            str(annotated_vcf),
         ]
         run_cmd(cmd, shell=False)
-
         # Replace original VCF with annotated version
-        if vcf.exists():
-            vcf.unlink()
-        tmp_vcf.rename(vcf)
-
+        if annotated_vcf.exists():
+            annotated_vcf.unlink()
+        tmp_vcf.rename(annotated_vcf)        
         # Re-index
-        run_cmd(["tabix", "-f", "-p", "vcf", str(vcf)], shell=False)
+        run_cmd(["tabix", "-f", "-p", "vcf", str(annotated_vcf)], shell=False)
+    return {
+        "annotated_vcf": annotated_vcf
+    }
+        
+        

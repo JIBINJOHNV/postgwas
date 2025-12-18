@@ -1,50 +1,30 @@
 #!/usr/bin/env python3
 """
-PostGWAS — Pipeline CLI (v10, Option B Error Handling)
+PostGWAS — Pipeline CLI (v49, Annotation Order Fix)
 
-Changes in this version
------------------------
-• argparse error messages fully suppressed
-• custom message shown instead of argparse default:
-      ❗ Required arguments are missing for the selected modules.
-         Displaying full pipeline help:
-• On missing args, pipeline plan + full help is shown dynamically
-• Optional flags (--apply-filter, --apply-imputation, --apply-manhattan)
-  behave as modules and expand dependencies automatically
+Changes:
+• FIX: Moved 'annot_ldblock' to run AFTER Imputation. 
+       This ensures imputed variants are correctly annotated with LD blocks before Finemapping.
 """
 
 import argparse
 import sys
 from rich_argparse import RichHelpFormatter
+from rich.console import Console
+from rich.table import Table
 
 # =====================================================================
-# CUSTOM PARSER (SUPPRESS DEFAULT ARGPARSE ERROR OUTPUT)
+# IMPORT ORCHESTRATOR
+# =====================================================================
+from postgwas.pipeline.execution import execute_pipeline 
+
+# =====================================================================
+# CUSTOM PARSER
 # =====================================================================
 
 class HelpOnErrorArgumentParser(argparse.ArgumentParser):
     def error(self, message):
-        # We suppress default argparse error message,
-        # print only our custom help block.
-        raise ValueError("ARGPARSE_ERROR")  # handled later
-
-
-# =====================================================================
-# WORKFLOW IMPORTS
-# =====================================================================
-
-from postgwas.annot_ldblock.workflows import run_annot_ldblock
-from postgwas.formatter.workflows import run_formatter_direct
-from postgwas.sumstat_filter.workflows import run_sumstat_filter_direct
-from postgwas.imputation.workflows import run_sumstat_imputation_direct
-from postgwas.finemap.workflows import run_susie_direct
-from postgwas.ld_clump.workflows import run_ld_clump_direct
-from postgwas.gene_assoc.workflows import run_magma_direct
-from postgwas.magmacovar.workflows import run_magma_covar_direct
-from postgwas.pops.workflows import run_pops_direct
-from postgwas.flames.workflows import run_flames_direct
-from postgwas.h2_rg.workflows import run_ldsc_direct
-from postgwas.manhattan.workflows import run_assoc_plot_direct
-from postgwas.qc_summary.workflows import run_qc_summary_direct
+        raise ValueError(message)
 
 # =====================================================================
 # PARSER BUILDERS
@@ -61,14 +41,16 @@ from postgwas.clis.common_cli import (
     get_common_susie_arguments,
     get_plink_binary_parser,
     get_common_magma_assoc_parser,
-    get_magma_binary_parser,
     get_common_magma_covar_parser,
     get_common_pops_parser,
     get_flames_common_parser,
     get_common_imputation_parser,
     get_ldsc_common_parser,
     get_annot_ldblock_parser,
-    get_assoc_plot_parser
+    get_assoc_plot_parser,
+    get_magma_binary_parser,
+    get_bcftools_binary_parser,
+    get_plink_binary_parser
 )
 
 def get_qc_parser():
@@ -77,203 +59,92 @@ def get_qc_parser():
     g.add_argument("--qc_output_prefix")
     return parser
 
-
 # =====================================================================
-# MODULE DESCRIPTIONS (for help preview)
+# MODULE CONFIGURATION
 # =====================================================================
 
 MODULE_DESCRIPTIONS = {
-    "annot_ldblock": [
-        "Annotates variants with LD blocks using Berisa & Pickrell (2016).",
-        "Inputs: harmonised VCF, genome build, LD block BED resources."
-    ],
-    "formatter": [
-        "Converts harmonised VCF to tool-specific formats.",
-        "Outputs: MAGMA, FINEMAP, LDSC, PoPS, FLAMES-ready tables."
-    ],
-    "sumstat_filter": [
-        "Filters summary statistics: INFO, MAF, MAC, allele matching, EAF QC.",
-        "Recommended before imputation and fine-mapping."
-    ],
-    "imputation": [
-        "Performs summary statistics imputation using PRED-LD.",
-        "Requires: LD reference panel matched to genome build."
-    ],
-    "finemap": [
-        "Runs SuSiE fine-mapping to compute credible sets & PIPs.",
-        "Requires: locus file, LD matrix, formatted summary statistics."
-    ],
-    "ld_clump": [
-        "Runs PLINK LD-clumping to extract independent GWAS lead variants.",
-    ],
-    "magma": [
-        "Runs MAGMA gene-level association analysis.",
-    ],
-    "magmacovar": [
-        "Runs MAGMA gene-property (covariate) analysis.",
-    ],
-    "pops": [
-        "Computes PoPS gene prioritisation scores."
-    ],
-    "flames": [
-        "Runs FLAMES integrative effector-gene scoring."
-    ],
-    "heritability": [
-        "Runs LDSC heritability & genetic correlation."
-    ],
-    "manhattan": [
-        "Generates Manhattan & QQ plots."
-    ],
-    "qc": [
-        "Generates harmonisation/QC summaries."
-    ],
+    "harmonisation": ["Standardises summary statistics and converts them to VCF format."],
+    "annot_ldblock": ["Annotates variants with LD blocks."],
+    "formatter": ["Converts harmonised VCF to tool-specific formats."],
+    "sumstat_filter": ["Filters summary statistics: INFO, MAF, QC."],
+    "post_imputation_filter": ["SECONDARY FILTER: Runs automatically after Harmonisation."],
+    "imputation": ["Performs summary statistics imputation using PRED-LD."],
+    "finemap": ["Runs SuSiE fine-mapping."],
+    "ld_clump": ["Runs PLINK LD-clumping."],
+    "magma": ["Runs MAGMA gene-level association analysis."],
+    "magmacovar": ["Runs MAGMA gene-property analysis."],
+    "pops": ["Computes PoPS gene prioritisation scores."],
+    "flames": ["Runs FLAMES integrative effector-gene scoring."],
+    "heritability": ["Runs LDSC heritability."],
+    "manhattan": ["Generates Manhattan & QQ plots."],
+    "qc_summary": ["Generates QC summaries."],
 }
-
-# =====================================================================
-# DAG DEPENDENCIES
-# =====================================================================
 
 MODULE_DEPENDENCIES = {
     "annot_ldblock": [],
-    "formatter": ["annot_ldblock"],
-    "sumstat_filter": ["annot_ldblock"],
-    "imputation": ["sumstat_filter"],
-    "finemap": ["formatter", "annot_ldblock"],
-    "ld_clump": ["formatter"],
-    "magma": ["formatter"],
+    "harmonisation": [],
+    "sumstat_filter": [],
+    "formatter":     [],
+    "magma":         [],
+    "heritability":  [],
+    "manhattan":     [],
+    "qc_summary":    [],
+    "imputation": ["formatter"],
+    "post_imputation_filter": [],
+    "ld_clump": ["annot_ldblock"], 
+    "finemap": ["ld_clump"],
     "magmacovar": ["magma"],
     "pops": ["magma"],
-    "flames": [
-        "annot_ldblock", "formatter", "finemap",
-        "ld_clump", "magma", "magmacovar", "pops"
-    ],
-    "heritability": ["formatter"],
-    "manhattan": ["formatter"],
-    "qc": [],
+    "flames": ["annot_ldblock", "finemap", "ld_clump", "magma", "magmacovar", "pops"],
 }
-
-# =====================================================================
-# MODULE → PARSERS
-# =====================================================================
 
 MODULE_PARSERS = {
-    "annot_ldblock": [
-        get_defaultresourse_parser, get_inputvcf_parser,
-        get_genomeversion_parser, get_common_out_parser,
-        get_annot_ldblock_parser
-    ],
-    "formatter": [
-        get_defaultresourse_parser, get_inputvcf_parser,
-        get_common_out_parser, get_formatter_parser
-    ],
-    "finemap": [
-        get_defaultresourse_parser, get_inputvcf_parser,
-        get_common_out_parser, get_finemap_method_parser,
-        get_common_susie_arguments
-    ],
-    "ld_clump": [
-        get_defaultresourse_parser, get_inputvcf_parser,
-        get_common_out_parser, get_plink_binary_parser
-    ],
-    "magma": [
-        get_defaultresourse_parser, get_inputvcf_parser,
-        get_common_out_parser, get_common_magma_assoc_parser,
-        get_magma_binary_parser
-    ],
-    "magmacovar": [
-        get_defaultresourse_parser, get_inputvcf_parser,
-        get_common_out_parser, get_common_magma_covar_parser,
-        get_magma_binary_parser
-    ],
-    "pops": [
-        get_defaultresourse_parser, get_inputvcf_parser,
-        get_common_out_parser, get_common_pops_parser
-    ],
-    "flames": [
-        get_defaultresourse_parser, get_inputvcf_parser,
-        get_common_out_parser, get_flames_common_parser,
-        get_common_pops_parser, get_common_magma_assoc_parser
-    ],
-    "sumstat_filter": [
-        get_defaultresourse_parser, get_inputvcf_parser,
-        get_common_out_parser, get_common_sumstat_filter_parser
-    ],
-    "imputation": [
-        get_defaultresourse_parser, get_inputvcf_parser,
-        get_common_out_parser, get_common_imputation_parser
-    ],
-    "heritability": [
-        get_defaultresourse_parser, get_inputvcf_parser,
-        get_common_out_parser, get_ldsc_common_parser
-    ],
-    "manhattan": [
-        get_defaultresourse_parser, get_inputvcf_parser,
-        get_common_out_parser, get_assoc_plot_parser
-    ],
-    "qc_summary": [
-        get_defaultresourse_parser, get_inputvcf_parser,
-        get_common_out_parser, get_qc_parser
-    ],
+    "harmonisation": [],
+    "annot_ldblock": [get_defaultresourse_parser, get_inputvcf_parser, get_genomeversion_parser, get_common_out_parser, get_annot_ldblock_parser],
+    "formatter": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_formatter_parser, get_bcftools_binary_parser],
+    "finemap": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_finemap_method_parser, get_common_susie_arguments, get_bcftools_binary_parser],
+    "ld_clump": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_plink_binary_parser, get_bcftools_binary_parser],
+    "magma": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_common_magma_assoc_parser, get_magma_binary_parser, get_bcftools_binary_parser],
+    "magmacovar": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_common_magma_assoc_parser, get_common_magma_covar_parser, get_magma_binary_parser, get_bcftools_binary_parser],
+    "pops": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_common_pops_parser, get_common_magma_assoc_parser, get_common_magma_covar_parser, get_bcftools_binary_parser, get_magma_binary_parser],
+    "flames": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_common_magma_assoc_parser, get_common_magma_covar_parser, get_common_pops_parser, get_flames_common_parser, get_bcftools_binary_parser, get_magma_binary_parser],
+    "sumstat_filter": [get_defaultresourse_parser, get_inputvcf_parser, get_genomeversion_parser, get_common_out_parser, get_common_sumstat_filter_parser, get_bcftools_binary_parser],
+    "post_imputation_filter": [get_defaultresourse_parser, get_inputvcf_parser, get_genomeversion_parser, get_common_out_parser, get_common_sumstat_filter_parser, get_bcftools_binary_parser],
+    "imputation": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_common_imputation_parser, get_bcftools_binary_parser],
+    "heritability": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_ldsc_common_parser],
+    "manhattan": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_assoc_plot_parser],
+    "qc_summary": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_qc_parser],
 }
 
 # =====================================================================
-# MODULE → WORKFLOW FUNCTION
+# HELPERS
 # =====================================================================
 
-WORKFLOW_FUNCS = {
-    "annot_ldblock": run_annot_ldblock,
-    "formatter": run_formatter_direct,
-    "sumstat_filter": run_sumstat_filter_direct,
-    "imputation": run_sumstat_imputation_direct,
-    "finemap": run_susie_direct,
-    "ld_clump": run_ld_clump_direct,
-    "magma": run_magma_direct,
-    "magmacovar": run_magma_covar_direct,
-    "pops": run_pops_direct,
-    "flames": run_flames_direct,
-    "heritability": run_ldsc_direct,
-    "manhattan": run_assoc_plot_direct,
-    "qc_summary": run_qc_summary_direct,
-}
-
-# =====================================================================
-# DAG RESOLVER
-# =====================================================================
-
-def resolve_dependencies(mods):
+def resolve_dependencies_unique(mods):
+    """Returns unique list of modules for Argument Parsing"""
     resolved, visited = [], set()
-
     def dfs(x):
-        if x in visited:
-            return
+        if x in visited: return
         visited.add(x)
         for dep in MODULE_DEPENDENCIES.get(x, []):
             dfs(dep)
         resolved.append(x)
-
-    for m in mods:
-        dfs(m)
-
+    for m in mods: dfs(m)
     return resolved
 
-
-# =====================================================================
-# PRINT HELP BLOCK FOR MISSING ARGUMENTS
-# =====================================================================
-
 def print_full_pipeline_help(modules, parser):
-    print("\n❗ Required arguments are missing for the selected modules.")
+    print("\n❗ Required arguments, resources, or dependencies are missing.")
     print("   Displaying full pipeline help:\n")
-
     print("📘 Detailed Pipeline Execution Plan:\n")
     for idx, m in enumerate(modules, 1):
-        print(f" {idx}) {m}")
-        for line in MODULE_DESCRIPTIONS.get(m, ["No description available."]):
-            print(f"      • {line}")
+        if m in MODULE_DESCRIPTIONS:
+            print(f" {idx}) {m}")
+            for line in MODULE_DESCRIPTIONS[m]:
+                print(f"      • {line}")
         print("")
     print("👇 Below are the arguments relevant to this pipeline:\n")
     parser.print_help()
-
 
 # =====================================================================
 # MAIN
@@ -281,146 +152,201 @@ def print_full_pipeline_help(modules, parser):
 
 def main():
 
-    # -------------------------------------------------------------
-    # Stage 1 — Minimal parser to detect --modules and flags
-    # -------------------------------------------------------------
+    # 1. Minimal Parse
     mini = argparse.ArgumentParser(add_help=False)
     mini.add_argument("--modules", nargs="*")
     mini.add_argument("--apply-filter", action="store_true")
     mini.add_argument("--apply-imputation", action="store_true")
     mini.add_argument("--apply-manhattan", action="store_true")
+    mini.add_argument("--heritability", action="store_true")
     mini.add_argument("-h", "--help", action="store_true")
 
     a1, _ = mini.parse_known_args()
 
-    # -------------------------------------------------------------
-    # If no modules given → show module table
-    # -------------------------------------------------------------
-    if not a1.modules:
-        from rich.console import Console
-        from rich.table import Table
-
+    # 2. Show Table if Empty
+    if not a1.modules and not (a1.apply_filter or a1.apply_imputation or a1.heritability):
         console = Console()
-
-        console.print("""
-Each module operates directly on your harmonised GWAS VCF and required
-reference resources. No manual intermediate file inputs are required.
-""")
-        
-        console.print("""
-[bold cyan]Usage Example[/bold cyan]
-  postgwas pipeline --modules finemap --apply-filter --apply-imputation
-""")
-
-        console.print("""
-[bold cyan]PostGWAS Pipeline — Available Modules[/bold cyan] """)
-
-
-        t = Table(title=" ", header_style="bold cyan", show_lines=True)
+        console.print("\nEach module operates directly on your harmonised GWAS VCF.\n")
+        console.print("[bold cyan]Usage Example[/bold cyan]\n  postgwas pipeline --modules finemap --apply-filter\n")
+        t = Table(title="PostGWAS Pipeline — Available Modules", header_style="bold cyan", show_lines=True)
         t.add_column("Module", style="magenta", no_wrap=True)
         t.add_column("Description", style="white")
-
         for k in MODULE_DESCRIPTIONS:
             t.add_row(k, MODULE_DESCRIPTIONS[k][0])
-
         console.print(t)
-
-        opt = Table(title="Optional Flags (Act as Modules)", show_lines=True, header_style="bold green")
-        opt.add_column("Flag", style="yellow", no_wrap=True)
-        opt.add_column("Description")
-
-        opt.add_row("--apply-filter", "Add QC filtering before downstream modules.")
-        opt.add_row("--apply-imputation", "Add PRED-LD imputation step.")
-        opt.add_row("--apply-manhattan", "Add Manhattan/QQ plotting step.")
-        opt.add_row("--heritability", "Run LDSC heritability analysis.")
-
-        console.print(opt)
         sys.exit(0)
 
-    # -------------------------------------------------------------
-    # Expand optional flags into pipeline modules
-    # -------------------------------------------------------------
-    modules = list(a1.modules)
+    # 3. Resolve Modules (Stage 1: Identify Active Components)
+    raw_modules = list(a1.modules) if a1.modules else []
+    
+    # 3a. Add Flags to list
+    if a1.apply_filter and "sumstat_filter" not in raw_modules:
+        raw_modules.insert(0, "sumstat_filter")
+    if a1.apply_imputation and "imputation" not in raw_modules:
+        raw_modules.append("imputation")
+    if a1.heritability and "heritability" not in raw_modules:
+        raw_modules.append("heritability")
+    if a1.apply_manhattan and "manhattan" not in raw_modules:
+        raw_modules.append("manhattan")
 
-    if a1.apply_filter and "sumstat_filter" not in modules:
-        modules.insert(0, "sumstat_filter")
+    # 3b. Calculate ALL dependencies immediately
+    all_active_modules = set(resolve_dependencies_unique(raw_modules))
+    is_imputing = "imputation" in all_active_modules
+    
+    # 3c. Construct Explicit Execution Order
+    execution_modules = []
+    
+    # --- PHASE 1: PRE-IMPUTATION FILTER ---
+    if "sumstat_filter" in all_active_modules:
+        execution_modules.append("sumstat_filter")
+        
+    # --- PHASE 2: IMPUTATION BLOCK ---
+    if is_imputing:
+        # Pre-imp formatting
+        if "formatter" not in execution_modules: 
+            execution_modules.append("formatter")
+        
+        execution_modules.append("imputation")
+        
+        # Post-imp filtering
+        if "sumstat_filter" in all_active_modules or "post_imputation_filter" in all_active_modules:
+            execution_modules.append("post_imputation_filter")
 
-    if a1.apply_imputation and "imputation" not in modules:
-        if "sumstat_filter" in modules:
-            modules.insert(modules.index("sumstat_filter") + 1, "imputation")
-        else:
-            modules.insert(0, "imputation")
+    # --- PHASE 3: ANALYSIS PREP (Annotation & Formatting) ---
+    # FIX: Run annotation AFTER imputation so we annotate the imputed variants
+    if "annot_ldblock" in all_active_modules:
+        execution_modules.append("annot_ldblock")
 
-    if a1.apply_manhattan and "manhattan" not in modules:
-        modules.append("manhattan")
+    downstream_tools = ["ld_clump", "finemap", "magma", "magmacovar", "pops", "flames", "heritability"]
+    
+    # Run formatter if we have downstream tools (or if we just finished imputation and need to re-format)
+    # This runs AFTER annot_ldblock, so if annotation changed the VCF, formatter captures it.
+    if is_imputing or any(m in all_active_modules for m in downstream_tools):
+        # Always append formatter here to prepare for analysis
+        execution_modules.append("formatter")
 
-    # -------------------------------------------------------------
-    # Resolve DAG dependencies
-    # -------------------------------------------------------------
-    full_modules = resolve_dependencies(modules)
+    # --- PHASE 4: DOWNSTREAM ANALYSIS ---
+    for tool in downstream_tools:
+        if tool in all_active_modules:
+            execution_modules.append(tool)
+            
+    if "manhattan" in all_active_modules:
+        execution_modules.append("manhattan")
+    if "qc_summary" in all_active_modules:
+        execution_modules.append("qc_summary")
 
-    # -------------------------------------------------------------
-    # Stage 2 — Build dynamic combined parser
-    # -------------------------------------------------------------
+    # 3d. Build Unique List for Argument Parser
+    parser_modules = resolve_dependencies_unique(execution_modules)
+
+    # 4. Build Full Parser
     parent_parsers = []
     seen = set()
+    for m in parser_modules:
+        if m in MODULE_PARSERS:
+            for fn in MODULE_PARSERS[m]:
+                if fn not in seen:
+                    parent_parsers.append(fn())
+                    seen.add(fn)
 
-    for m in full_modules:
-        for fn in MODULE_PARSERS[m]:
-            if fn not in seen:
-                p = fn()
-                # remove built-in help
-                for act in list(p._actions):
-                    if "-h" in act.option_strings or "--help" in act.option_strings:
-                        p._actions.remove(act)
-                parent_parsers.append(p)
-                seen.add(fn)
-
+    custom_usage = "postgwas pipeline [options] --modules " + " ".join(parser_modules)
+    
     parser = HelpOnErrorArgumentParser(
         prog="postgwas pipeline",
-        description="PostGWAS pipeline",
         formatter_class=RichHelpFormatter,
-        parents=parent_parsers
+        parents=parent_parsers,
+        conflict_handler='resolve',
+        usage=custom_usage
     )
 
+    # -------------------------------------------------------------
+    # Context-Sensitive Arguments
+    # -------------------------------------------------------------
+    
+    is_formatter_explicit = "formatter" in raw_modules
+    
+    for action in parser._actions:
+        if action.dest == "format":
+            if not is_formatter_explicit:
+                action.required = False
+                action.help = argparse.SUPPRESS 
+
+    # Re-add CLI Flags
     parser.add_argument("--modules", nargs="*")
     parser.add_argument("--apply-filter", action="store_true")
     parser.add_argument("--apply-imputation", action="store_true")
     parser.add_argument("--apply-manhattan", action="store_true")
     parser.add_argument("--heritability", action="store_true")
 
-    # -------------------------------------------------------------
-    # HELP MODE
-    # -------------------------------------------------------------
     if a1.help:
-        print_full_pipeline_help(full_modules, parser)
+        print_full_pipeline_help(execution_modules, parser)
         sys.exit(0)
 
-    # -------------------------------------------------------------
-    # FULL PARSE — Catch missing required arguments
-    # -------------------------------------------------------------
+    # 5. Parse & Validate
     try:
         args = parser.parse_args()
     except ValueError as e:
-        if str(e) == "ARGPARSE_ERROR":
-            print_full_pipeline_help(full_modules, parser)
-            sys.exit(2)
-        else:
-            raise
+        print(f"\n❌ [bold red]Argument Parsing Error:[/bold red] {e}")
+        print_full_pipeline_help(execution_modules, parser)
+        sys.exit(2)
 
-    # -------------------------------------------------------------
-    # EXECUTION
-    # -------------------------------------------------------------
-    print("\n🧬 Pipeline execution order:")
-    for m in full_modules:
-        print(f"  → {m}")
+    REQUIRED_ARGS = {
+        "annot_ldblock": ["vcf", "genome-version","sample_id","outdir","ld-region-dir"],
+        "sumstat_filter": ["vcf","sample_id","outdir"],
+        "post_imputation_filter": ["vcf","sample_id","outdir"], 
+        "imputation": ["vcf","sample_id","outdir","ref_ld","gwas2vcf_resource"],
+        "formatter": ["vcf","sample_id","outdir"],
+        "finemap": ["vcf","sample_id","outdir","ld-region-dir","finemap_ld_ref"],
+        "ld_clump": ["vcf", "genome-version","sample_id","outdir","ld-region-dir"],
+        "magma": ["vcf","sample_id","outdir","ld_ref","gene_loc_file"],
+        "magmacovar": ["vcf","sample_id","outdir","ld_ref","gene_loc_file","covariates"],
+        "pops": ["vcf","sample_id","outdir","ld_ref","feature_mat_prefix","pops_gene_loc_file"],
+        "flames": ["vcf","sample_id","outdir","ld_ref","covariates","feature_mat_prefix","pops_gene_loc_file","flames_annot_dir"],
+        "heritability": ["vcf","sample_id","outdir","merge-alleles","ref-ld-chr","w-ld-chr"],
+        "manhattan": ["vcf","sample_id","outdir"],
+        "qc_summary": ["vcf","sample_id","outdir"],
+    }
 
-    for m in full_modules:
-        print(f"\n🚀 Running module: {m}")
-        WORKFLOW_FUNCS[m](args)
+    missing_errors = []
+    
+    check_list = parser_modules.copy()
+    if not is_formatter_explicit and "formatter" in check_list:
+        check_list.remove("formatter")
+
+    for m in check_list:
+        if m in REQUIRED_ARGS:
+            for arg_name in REQUIRED_ARGS[m]:
+                attr_name = arg_name.replace("-", "_")
+                val = getattr(args, attr_name, None)
+                if not val:
+                    missing_errors.append(f"Module '[bold cyan]{m}[/bold cyan]' requires argument [bold red]--{arg_name}[/bold red]")
+
+    if missing_errors:
+        print("\n❌ [bold red]Missing Required Arguments:[/bold red]")
+        for err in missing_errors:
+            print(f"   • {err}")
+        print_full_pipeline_help(execution_modules, parser)
+        sys.exit(2)
+
+    # 6. Execute
+    try:
+        args.modules = parser_modules 
+        execute_pipeline(args, execution_modules)
+        
+    except (ValueError, OSError, AttributeError, TypeError, SystemExit) as e:
+        if isinstance(e, SystemExit):
+            if e.code != 0:
+                print_full_pipeline_help(execution_modules, parser)
+                sys.exit(e.code)
+            sys.exit(0)
+
+        err_msg = str(e).lower()
+        if "required" in err_msg or "executable not found" in err_msg:
+             print(f"\n❌ [bold red]Execution Error:[/bold red] {e}") 
+             print_full_pipeline_help(execution_modules, parser)
+             sys.exit(2)
+        raise
 
     print("\n🎉 Pipeline complete.\n")
-
 
 if __name__ == "__main__":
     main()

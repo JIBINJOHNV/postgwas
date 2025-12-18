@@ -13,7 +13,8 @@ from postgwas.clis.common_cli import (
     get_defaultresourse_parser,
     get_inputvcf_parser,
     get_common_out_parser,
-    get_assoc_plot_parser
+    get_assoc_plot_parser,
+    get_genomeversion_parser
 )
 
 from postgwas.harmonisation.cli import (
@@ -50,6 +51,7 @@ def main():
             # Components from the original 'direct' subcommand
             get_defaultresourse_parser(),
             get_inputvcf_parser(),
+            get_genomeversion_parser(),
             get_common_out_parser(),
             get_assoc_plot_parser()
             

@@ -7,8 +7,8 @@ def run_qc_summary_direct(args):
         vcf_path=args.vcf,
         qc_outdir=args.outdir,
         sample_id=args.sample_id,
-        external_af_name=args.external_af_name,
-        allelefreq_diff_cutoff=args.allelefreq_diff_cutoff,
+        external_af_name=args.qc_summary_external_af_name,
+        allelefreq_diff_cutoff=args.qc_summary_allelefreq_diff_cutoff,
         n_threads=args.nthreads,
         bcftools_bin=args.bcftools,
     )

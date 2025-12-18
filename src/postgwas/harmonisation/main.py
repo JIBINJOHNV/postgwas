@@ -714,11 +714,8 @@ def run_harmonisation_pipeline(
     maf_eaf_decision_cutoff =default_cfg_obj['maf_eaf_decision_cutoff']
     extrnal_eaf_colmap=default_cfg_obj["extrnal_eaf_colmap"]
     # Build clean path using pathlib
-    output_folder = (
-        Path(sample_column_dict["output_folder"])
-        / sample_column_dict["gwas_outputname"]
-        / "1_harmonisation"
-    )
+    output_folder = Path(sample_column_dict["output_folder"])
+
 
     # Save normalized string version back to dict
     sample_column_dict["output_folder"] = str(output_folder)
@@ -902,10 +899,8 @@ def run_harmonisation_pipeline(
     )
     safe_print(f"✅ Filtered VCF written to: {qc_passed_vcf}")
 
-    filtered_vcf_path = (
-        outdir
-        / f"{sample_column_dict['gwas_outputname']}_GRCh37_raw_filtered.vcf.gz"
-    )
+    filtered_vcf_path = qc_passed_vcf['filtered_vcf']
+
     qc_passed_vcf_df = run_qc_summary(
         vcf_path=filtered_vcf_path,
         qc_outdir=outdir,
@@ -985,4 +980,8 @@ def run_harmonisation_pipeline(
     combine_logs_per_chromosome(f"{outdir}/logs/")
 
     safe_print("\n🎉 Harmonisation + GWAS2VCF pipeline completed successfully.\n")
-    return final_qc_df
+    
+    return {
+        "GRCh37":f"{outdir}/{sample_column_dict['gwas_outputname']}_GRCh37_merged.vcf.gz",
+        "GRCh38":f"{outdir}/{sample_column_dict['gwas_outputname']}_GRCh37_merged.vcf.gz"
+    }

@@ -27,13 +27,86 @@ AUTO_MAX_MEM = f"{AUTO_MEM_GB}G"               # string format for CLI
 
 
 
+# ==================================================================
+# ARGUMENT PARSER BUILDER (BASE + DIRECT ONLY)
+# ==================================================================
+def sumstat_summary_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(add_help=False)
+    # 💥 DEFINE ARGUMENT GROUP for Step 2 💥
+    group = parser.add_argument_group('sumstat qc summary Arguments')
+
+    group.add_argument(
+        "--qc_summary_external_af_name",
+        metavar=" ",
+        default="EUR",
+        help=(
+            "Name of the INFO/<AF> tag used as external reference AF.\n"
+            "Examples: EUR, AFR, EAS.\n"
+            "Default: EUR"
+        ),
+    )
+
+    group.add_argument(
+        "--qc_summary_allelefreq-diff-cutoff",
+        type=float,
+        metavar=" ",
+        default=0.2,
+        help=(
+            "Maximum allowed absolute difference between FORMAT/AF and "
+            "INFO/<external_af_name>.\n"
+            "Default: 0.2"
+        ),
+    )
+
+    return parser
+
+
+
+
+# --- 1. BASE PARSER FOR STEP 2 ARGUMENTS ---
+
+def get_annot_ldblock_parser(add_help=False):
+    """
+    Returns the core ArgumentParser for annot_ldblock arguments, structured using a group. 
+    """
+    # Create bare parser for inheritance
+    parser = argparse.ArgumentParser(add_help=add_help) 
+    
+    # 💥 DEFINE ARGUMENT GROUP for Step 2 💥
+    group = parser.add_argument_group('LD BLOCK ANNOTATION Arguments')
+
+    group.add_argument(
+        "--ld_block_population", 
+        nargs="+", 
+        default=["EUR", "AFR", "EAS"], 
+        help=(
+            "Populations to annotate (e.g., EUR AFR). "
+            "Files must be named following the pattern: [cyan]Genomeversion_Population_ldetect.bed.gz ;Eg. GRCh37_EUR_ldetect.bed.gz [/cyan]."
+            "[bold green]Default:[/bold green] [cyan]EUR AFR EAS[/cyan] "
+        )
+    )
+    group.add_argument(
+        "--ld-region-dir",
+        required=True,
+        type=validate_path(must_exist=True, must_be_dir=True,dir_must_have_files=True),
+        metavar='',
+        help=(
+            "[bold bright_red]Required[/bold bright_red]: Directory containing LD-block BED files. "
+            "Each BED file must contain four columns: CHROM, START, END, and Annotation. "
+            "The fourth column is used as the LD-block annotation label."
+            "The Genome build of bed fle should be same as input sumstat Genome build"
+        ),
+    )
+
+    
+    return parser
+
 
 
 
 # ------------------------------------------------------------
 # Formatter-specific parser
 # ------------------------------------------------------------
-
 def get_formatter_parser():
     parser = argparse.ArgumentParser(add_help=False)
     group = parser.add_argument_group("Formatter Options")
@@ -51,6 +124,88 @@ def get_formatter_parser():
     )
 
     return parser
+
+
+
+
+def get_ld_clump_parser(add_help=False):
+    """
+    Returns a parent-safe parser containing arguments
+    that are shared between DIRECT and PIPELINE modes.
+
+    COMMON arguments:
+        --ld-mode
+        --population
+        --r2-cutoff
+        --window-kb
+
+    (VCF input, outdir, resource folder, bcftools, harmonisation,
+     annot_ldblock etc. are added separately in main() via their own
+     get_*_parser functions.)
+    """
+    parser = argparse.ArgumentParser(add_help=add_help)
+
+    # -------------------------------
+    # General LD clumping options
+    # -------------------------------
+    general = parser.add_argument_group("Common LD Clumping Arguments")
+
+    general.add_argument(
+        "--ld-mode",
+        default="by_regions",
+        choices=["by_regions", "standard"],
+        metavar=" ",
+        help=(
+            "LD clumping strategy.\n"
+            "Choices: [cyan]by_regions[/cyan], [cyan]standard[/cyan]\n"
+            f"[bold green]Default:[/bold green] [cyan]by_regions[/cyan]"
+        )
+    )
+
+    general.add_argument(
+        "--population",
+        default="EUR",
+        choices=["EUR", "AFR", "EAS"],
+        metavar=" ",
+        help=(
+            "Population LD blocks (by_regions mode only).\n"
+            f"[bold green]Default:[/bold green] [cyan]EUR[/cyan]"
+        )
+    )
+
+    # -------------------------------
+    # Standard-mode arguments
+    # -------------------------------
+    standard = parser.add_argument_group(
+        "Standard LD Clumping Arguments (PLINK-style)"
+    )
+
+    standard.add_argument(
+        "--r2-cutoff",
+        type=float,
+        default=0.1,
+        metavar=" ",
+        help=(
+            "Pairwise LD r² threshold for standard clumping.\n"
+            f"[bold green]Default:[/bold green] [cyan]0.1[/cyan]"
+        )
+    )
+
+    standard.add_argument(
+        "--window-kb",
+        type=int,
+        default=250,
+        metavar=" ",
+        help=(
+            "Sliding window size (kilobases) for standard clumping.\n"
+            f"[bold green]Default:[/bold green] [cyan]250[/cyan]"
+        )
+    )
+
+    return parser
+
+
+
 
 
 def safe_parse_args(top_parser):
@@ -225,26 +380,25 @@ def get_genomeversion_parser():
     )
     return parser
 
-
-
 def get_common_out_parser():
     """
-    Common parser for shared input arguments across PostGWAS modules:
-    - VCF input
-    - Genome version
-    - Sample/phenotype ID
-    - Output folder
-    Safe for inheritance across multiple pipeline steps.
+    Common parser for shared OUTPUT arguments across PostGWAS modules.
+
+    NOTE:
+    -----
+    - No required=True
+    - No filesystem calls (Path.cwd) during parser creation
+    - Defaults resolved AFTER parsing
     """
     parser = argparse.ArgumentParser(
         add_help=False,
-        formatter_class=RichHelpFormatter
+        formatter_class=RichHelpFormatter,
     )
 
-    input_group = parser.add_argument_group("OUTPUT Arguments")
+    group = parser.add_argument_group("OUTPUT Arguments")
 
     # -------- SAMPLE ID --------
-    input_group.add_argument(
+    group.add_argument(
         "--sample_id",
         metavar="",
         type=validate_alphanumeric,
@@ -252,20 +406,24 @@ def get_common_out_parser():
             "[bold bright_red]Required[/bold bright_red]: Unique identifier for this GWAS dataset.\n"
             "Use the phenotype/trait name (e.g., [cyan]PGC3_SCZ_eur[/cyan], [cyan]UKB_BMI[/cyan]).\n"
             "This value is used as the prefix for ALL generated output files."
-        )
+        ),
     )
 
     # -------- OUTPUT DIRECTORY --------
-    input_group.add_argument(
+    group.add_argument(
         "--outdir",
-        default=str(Path.cwd()),
         metavar="",
-        type=validate_path(must_exist=True, must_be_dir=True,create_if_missing=True),
+        default=None,  # 🔑 SAFE
+        type=validate_path(
+            must_exist=False,
+            must_be_dir=True,
+            create_if_missing=True,
+        ),
         help=(
             "[bold bright_red]Required[/bold bright_red]: Output directory where all results "
             "and intermediate files will be stored.\n"
-            f"[bold green]Default:[/bold green] [cyan]{str(Path.cwd())}[/cyan]"
-        )
+            "[bold green]Default:[/bold green] current working directory"
+        ),
     )
 
     return parser
@@ -278,7 +436,7 @@ def get_common_magma_covar_parser(add_help=False):
         "--covariates",
         metavar="",
         type=validate_path(must_exist=True,must_be_file=True,must_not_be_empty=True),
-        help="Covariate matrix file (TSV)"
+        help="[bold bright_red]Required[/bold bright_red]:  Covariate matrix file (TSV)"
     )
     
     group.add_argument(
@@ -317,9 +475,9 @@ def get_common_magma_covar_parser(add_help=False):
             "direction token is passed as an additional argument after the\n"
             "model specification.\n\n"
             "Example CLI:\n"
-            "  --covar_model condition-hide=Average --covar_direction greater\n"
+            "--covar_model condition-hide=Average --covar_direction greater\n"
             "Internally MAGMA will see:\n"
-            "  --model condition-hide=Average direction=greater"
+            "--model condition-hide=Average direction=greater"
         ),
     )
     return parser
@@ -443,10 +601,13 @@ def get_common_magma_assoc_parser(add_help=False):
         type=lambda p: validate_prefix_files(p, [".bed", ".bim", ".fam"]),
         metavar="",
         help=(
-            "Prefix of PLINK reference panel for MAGMA (e.g., 1000G EUR).\n"
-            "Should point to files: PREFIX.bed / PREFIX.bim / PREFIX.fam."
-            f"\n[bold green]Default:[/bold green] [cyan]None[/cyan]"
-        ),
+        "[bold bright_red]Required[/bold bright_red]: Prefix of PLINK reference panel for MAGMA "
+        "(e.g., 1000G_EUR).\n"
+        "Should point to files: PREFIX.bed / PREFIX.bim / PREFIX.fam.\n"
+        "Make sure the summary statistics and the LD reference "
+        "use the same genome build."
+        "\n[bold green]Default:[/bold green] [cyan]None[/cyan]"
+        ) ,
     )
 
     group.add_argument(
@@ -468,18 +629,6 @@ def get_common_magma_assoc_parser(add_help=False):
         help=(
             "Pathway file (.gmt). MSigDB or custom GMT supported."
             f"\n[bold green]Default:[/bold green] [cyan]None[/cyan]"
-        ),
-    )
-
-    # Optional tuning parameters
-    group.add_argument(
-        "--num_batches",
-        type=int,
-        default=6,
-        metavar="",
-        help=(
-            "Number of MAGMA computation batches. "
-            f"[bold green]Default:[/bold green] [cyan]6[/cyan]"
         ),
     )
 
@@ -937,11 +1086,11 @@ def get_common_sumstat_filter_parser(add_help=False):
         "--allelefreq-diff-cutoff",
         type=float,
         metavar=" ",
-        default=None,
+        default=0.2,
         help=(
             "Maximum allowed difference between dataset allele frequency and "
             "external reference AF (e.g., EUR/EAS/AFR AF tags).\n"
-            "[bold green]Default:[/bold green] [cyan]None[/cyan]"
+            "[bold green]Default:[/bold green] [cyan]0.2[/cyan]"
         )
     )
 
@@ -949,12 +1098,12 @@ def get_common_sumstat_filter_parser(add_help=False):
         "--info-cutoff",
         type=float,
         metavar=" ",
-        default=None,
+        default=0.3,
         help=(
             "Minimum INFO score required to retain a variant "
             "(imputation quality threshold).\n"
             "Typical values: [cyan]0.6[/cyan], [cyan]0.8[/cyan]\n"
-            "[bold green]Default:[/bold green] [cyan]None[/cyan]"
+            "[bold green]Default:[/bold green] [cyan]0.3[/cyan]"
         )
     )
 
@@ -1097,7 +1246,7 @@ def get_flames_common_parser(add_help=False):
         "--flames_annot_dir",
         metavar="",
         type=validate_path(must_exist=True, must_be_dir=True),
-        help="Directory where FLAMES annotation files will be written.",
+        help="[bold bright_red]Required[/bold bright_red]: Directory where FLAMES annotation files will be written.",
     )
     
     model_group.add_argument(
@@ -1121,13 +1270,6 @@ def get_flames_common_parser(add_help=False):
         metavar="",
         help="Directory containing pretrained FLAMES model.",
         required=False
-    )
-
-    model_group.add_argument(
-        "--annotation_dir",
-        metavar="",
-        type=validate_path(must_exist=True, must_be_dir=True),
-        help="Directory containing FLAMES annotation files."
     )
 
     model_group.add_argument(
@@ -1168,7 +1310,7 @@ def get_common_imputation_parser(add_help: bool = False) -> argparse.ArgumentPar
         help=(
             "Choose imputation tool. "
             "[bold]Available options:[/bold] [cyan]pred_ld[/cyan] "
-            "(default: pred_ld)."
+            "[bold green]Default:[/bold green] [cyan]pred_ld[/cyan]"
         ),
     )
 
@@ -1186,19 +1328,12 @@ def get_common_imputation_parser(add_help: bool = False) -> argparse.ArgumentPar
     )
 
     grp.add_argument(
-        "--gwas2vcf_resource",
-        metavar=" ",
-        default=None,
-        type=validate_path(must_exist=True, must_be_dir=True),
-        help="[bold bright_red]Required[/bold bright_red]: Optional GWAS2VCF resource folder.",
-    )
-
-    grp.add_argument(
         "--r2threshold",
         metavar=" ",
         type=float,
         default=0.8,
-        help="LD r² tagging threshold.",
+        help=("LD r² tagging threshold."
+              "[bold green]Default:[/bold green] [cyan]0.8[/cyan]")
     )
 
     grp.add_argument(
@@ -1206,7 +1341,8 @@ def get_common_imputation_parser(add_help: bool = False) -> argparse.ArgumentPar
         metavar=" ",
         type=float,
         default=0.001,
-        help="Minor allele frequency threshold.",
+        help=("Minor allele frequency threshold."
+              "[bold green]Default:[/bold green] [cyan]0.001[/cyan]")
     )
 
     grp.add_argument(
@@ -1214,7 +1350,8 @@ def get_common_imputation_parser(add_help: bool = False) -> argparse.ArgumentPar
         metavar=" ",
         type=str,
         default="EUR",
-        help="Population code for LD reference.",
+        help=("Population code for LD reference."
+             "[bold green]Default:[/bold green] [cyan]EUR[/cyan]")
     )
 
     grp.add_argument(
@@ -1222,7 +1359,8 @@ def get_common_imputation_parser(add_help: bool = False) -> argparse.ArgumentPar
         metavar=" ",
         type=str,
         default="TOP_LD",
-        help="Reference panel name label.",
+        help=("Reference panel name label."
+              "[bold green]Default:[/bold green] [cyan]TOP_LD[/cyan]") 
     )
 
     grp.add_argument(
@@ -1231,7 +1369,25 @@ def get_common_imputation_parser(add_help: bool = False) -> argparse.ArgumentPar
         type=str,
         default="pearson",
         choices=["pearson", "spearman"],
-        help="Correlation method used in QC/post-processing.",
+        help=("Correlation method used in QC/post-processing."
+              "[bold green]Default:[/bold green] [cyan]pearson[/cyan]") 
+              
+    )
+
+    grp.add_argument(
+        "--gwas2vcf_resource",
+        metavar=" ",
+        default=None,
+        type=validate_path(must_exist=True, must_be_dir=True),
+        help="[bold bright_red]Required[/bold bright_red]: GWAS2VCF resource folder.",
+    )
+    
+    grp.add_argument(
+        "--gwas2vcf_default_config",
+        metavar=" ",
+        type=validate_path(must_exist=True, must_be_file=True),
+        help="[bold bright_red]Required[/bold bright_red]: GWAS2VCF default config file"
+              
     )
 
     return parser
@@ -1266,7 +1422,7 @@ def get_ldsc_common_parser(add_help: bool = False) -> argparse.ArgumentParser:
         type=str,
         choices=["ldsc"],
         default="ldsc",
-        help="Choose imputation engine (default: pred_ld)",
+        help="Choose imputation engine (default: ldsc). [bold green]Default:[/bold green] [cyan]ldsc[/cyan]",
     )
     
     grp.add_argument(
@@ -1274,7 +1430,7 @@ def get_ldsc_common_parser(add_help: bool = False) -> argparse.ArgumentParser:
         metavar=" ",
         type=validate_path(must_exist=True, must_be_file=True),
         help=(
-            "HapMap3 SNP list with alleles (w_hm3.snplist). Used during munge_sumstats.\n"
+            "[bold bright_red]Required[/bold bright_red]: HapMap3 SNP list with alleles (w_hm3.snplist). Used during munge_sumstats.\n"
             "Optional in DIRECT mode; recommended in PIPELINE mode."
         ),
     )
@@ -1285,14 +1441,14 @@ def get_ldsc_common_parser(add_help: bool = False) -> argparse.ArgumentParser:
         "--ref-ld-chr",
         metavar=" ",
         type=validate_path(must_exist=True, must_be_dir=True),
-        help="Directory containing reference LD scores (e.g., eur_w_ld_chr/).",
+        help="[bold bright_red]Required[/bold bright_red]: Directory containing reference LD scores (e.g., eur_w_ld_chr/).",
     )
 
     ref.add_argument(
         "--w-ld-chr",
         metavar=" ",
         type=validate_path(must_exist=True, must_be_dir=True),
-        help="Directory containing LDSC regression weights (often same as --ref-ld-chr).",
+        help="[bold bright_red]Required[/bold bright_red]: Directory containing LDSC regression weights (often same as --ref-ld-chr).",
     )
 
     prev = parser.add_argument_group("LDSC Liability-Scale Parameters")
@@ -1323,7 +1479,8 @@ def get_ldsc_common_parser(add_help: bool = False) -> argparse.ArgumentParser:
         metavar=" ",
         type=float,
         default=0.9,
-        help="Minimum INFO score during munge_sumstats (default: 0.9).",
+        help=("Minimum INFO score during munge_sumstats (default: 0.9)."
+              "[bold green]Default:[/bold green] [cyan]0.7[/cyan]" )
     )
 
     mung.add_argument(
@@ -1331,7 +1488,7 @@ def get_ldsc_common_parser(add_help: bool = False) -> argparse.ArgumentParser:
         metavar=" ",
         type=float,
         default=0.01,
-        help="Minimum MAF during munge_sumstats (default: 0.01).",
+        help=("Minimum MAF during munge_sumstats (default: 0.01). [bold green]Default:[/bold green] [cyan]0.01[/cyan]" )
     )
 
     docker_grp = parser.add_argument_group("LDSC Docker Execution ")
@@ -1341,7 +1498,7 @@ def get_ldsc_common_parser(add_help: bool = False) -> argparse.ArgumentParser:
         metavar=" ",
         type=str,
         default="jibinjv/ldsc:1.0.1",
-        help="Docker image used to run LDSC (default: jibinjv/ldsc:1.0.1).",
+        help=("Docker image used to run LDSC. [bold green]Default:[/bold green] [cyan]0.7[/cyan]"),
     )
 
     docker_grp.add_argument(
@@ -1349,51 +1506,10 @@ def get_ldsc_common_parser(add_help: bool = False) -> argparse.ArgumentParser:
         metavar=" ",
         type=str,
         default="linux/amd64",
-        help="Docker platform (default: linux/amd64, for Apple Silicon + x86 image).",
+        help="Docker platform (default: linux/amd64, for Apple Silicon + x86 image). [bold green]Default:[/bold green] [cyan]linux/amd64[/cyan]",
     )
 
     return parser
-
-
-
-# --- 1. BASE PARSER FOR STEP 2 ARGUMENTS ---
-
-def get_annot_ldblock_parser(add_help=False):
-    """
-    Returns the core ArgumentParser for annot_ldblock arguments, structured using a group. 
-    """
-    # Create bare parser for inheritance
-    parser = argparse.ArgumentParser(add_help=add_help) 
-    
-    # 💥 DEFINE ARGUMENT GROUP for Step 2 💥
-    group = parser.add_argument_group('LD BLOCK ANNOTATION Arguments')
-
-    group.add_argument(
-        "--ld_block_population", 
-        nargs="+", 
-        default=["EUR", "AFR", "EAS"], 
-        help=(
-            "Populations to annotate (e.g., EUR, AFR). "
-            "Files must be named following the pattern: [cyan]Genomeversion_Population_ldetect.bed.gz[/cyan]."
-            "[bold green]Default:[/bold green] [cyan]EUR AFR EAS[/cyan] "
-        )
-    )
-    group.add_argument(
-        "--ld-region-dir",
-        type=validate_path(must_exist=True, must_be_dir=True,dir_must_have_files=True),
-        metavar='',
-        help=(
-            "[bold bright_red]Required[/bold bright_red]: Directory containing LD-block BED files. "
-            "Each BED file must contain four columns: CHROM, START, END, and Annotation. "
-            "The fourth column is used as the LD-block annotation label."
-            "The Genome build of bed fle should be same as input sumstat Genome build"
-        ),
-    )
-
-    
-    return parser
-
-
 
 
 
@@ -1431,36 +1547,6 @@ def get_assoc_plot_parser(add_help=False):
     # INPUTS
     # ------------------------------------------------------------
     input_group = parser.add_argument_group("Association Plot Input Arguments")
-
-    input_group.add_argument(
-        "--genome",
-        choices=["GRCh37", "GRCh38"],
-        metavar=" ",
-        help=(
-            "Genome assembly used for chromosome-length annotation.\n"
-            "Choices: [cyan]GRCh37[/cyan], [cyan]GRCh38[/cyan]\n\n"
-            "[bold yellow]IMPORTANT:[/bold yellow] You must provide either:\n"
-            "  • [cyan]--genome[/cyan]\n"
-            "        OR\n"
-            "  • [cyan]--cytoband[/cyan]\n"
-            "Exactly one is required."
-        )
-    )
-
-    input_group.add_argument(
-        "--cytoband",
-        metavar=" ",
-        help=(
-            "Cytoband annotation file (<cytoband.txt.gz>).\n"
-            "Use this [cyan]instead[/cyan] of --genome for custom cytobands."
-        )
-    )
-
-    # input_group.add_argument(
-    #     "--tbx",
-    #     metavar=" ",
-    #     help="Tabix (.tbi) index corresponding to the input VCF."
-    # )
 
     input_group.add_argument(
         "--pheno",

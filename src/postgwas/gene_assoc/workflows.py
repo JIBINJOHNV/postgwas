@@ -2,6 +2,7 @@ from pathlib import Path
 
 from postgwas.formatter.cli import get_formatter_parser
 from postgwas.gene_assoc.magma_main import magma_analysis_pipeline
+from postgwas.utils.main import run_cmd,require_executable
 
 
 
@@ -10,12 +11,18 @@ from postgwas.gene_assoc.magma_main import magma_analysis_pipeline
 # =====================================================================
 #   DIRECT MODE ENGINE
 # =====================================================================
-def run_magma_direct(args):
+def run_magma_direct(args,ctx=None):
     print("\n=== Running MAGMA Gene & Geneset Analysis (Direct Mode) ===")
 
+    # -------------------------------------------------
+    # Dependency checks (FAIL FAST)
+    # -------------------------------------------------
+    require_executable("bcftools")
+    require_executable("tabix")
+    require_executable("magma")
+    
     Path(args.outdir).mkdir(parents=True, exist_ok=True)
-
-    magma_analysis_pipeline(
+    outputs =magma_analysis_pipeline(
         output_dir=args.outdir,
         sample_id=args.sample_id,
         ld_ref=args.ld_ref,
@@ -25,7 +32,6 @@ def run_magma_direct(args):
         geneset_file=args.geneset_file,
         log_file=f"{args.outdir}/{args.sample_id}_magma_gene_assoc.log",
         threads=args.nthreads,
-        num_batches=args.num_batches,
         window_upstream=args.window_upstream,
         window_downstream=args.window_downstream,
         gene_model=args.gene_model,
@@ -33,9 +39,10 @@ def run_magma_direct(args):
         seed=args.seed,
         magma=args.magma,
     )
-
-    print("\n🎉 MAGMA Direct Mode Completed.")
-    print(f"Results saved in: {args.outdir}\n")
+    if ctx is not None:
+        ctx["magma_gene"] = outputs
+    print("\n🎉 MAGMA analysis Completed.")
+    return(outputs)
 
 
 

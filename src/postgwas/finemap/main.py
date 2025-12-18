@@ -55,7 +55,6 @@ def validate_locus_file(path):
     return df
 
 
-
 def run_susie(
     locus_file,
     sumstat_file,
@@ -74,8 +73,7 @@ def run_susie(
     mhc_end="35000000",
     verbose=False,
 ):
-    
-    # Ensure log file parent folder exists
+
     output_folder = Path(output_folder)
     output_folder.mkdir(parents=True, exist_ok=True)
 
@@ -89,20 +87,20 @@ def run_susie(
 
     cmd = [
         "Rscript", str(rscript_file),
-        "--locus_file", locus_file,
-        "--sumstat_file", sumstat_file,
-        "--sample_id", sample_id,
-        "--ld_ref", ld_ref,
-        "--plink", plink,
+        "--locus_file", str(locus_file),
+        "--sumstat_file", str(sumstat_file),
+        "--sample_id", str(sample_id),
+        "--ld_ref", str(ld_ref),
+        "--plink", str(plink),
         "--SUSIE_Analysis_folder", str(output_folder),
-        "--lp_threshold", lp_threshold,
-        "--L", L,
-        "--workers", workers,
-        "--min_ram_per_worker_gb", min_ram_per_worker_gb,
-        "--timeout_ld_seconds", timeout_ld_seconds,
-        "--timeout_susie_seconds", timeout_susie_seconds,
-        "--mhc_start", mhc_start,
-        "--mhc_end", mhc_end,
+        "--lp_threshold", str(lp_threshold),
+        "--L", str(L),
+        "--workers", str(workers),
+        "--min_ram_per_worker_gb", str(min_ram_per_worker_gb),
+        "--timeout_ld_seconds", str(timeout_ld_seconds),
+        "--timeout_susie_seconds", str(timeout_susie_seconds),
+        "--mhc_start", str(mhc_start),
+        "--mhc_end", str(mhc_end),
     ]
 
     if skip_mhc:
@@ -111,9 +109,22 @@ def run_susie(
     if verbose:
         cmd.append("--verbose")
 
-    # Convert all items to string
-    cmd = list(map(str, cmd))
+    try:
+        with open(log_file, "w") as log:
+            subprocess.run(cmd, stdout=log, stderr=log, check=True)
 
-    # Redirect stdout + stderr to log file
-    with open(log_file, "w") as log:
-        subprocess.run(cmd, stdout=log, stderr=log, check=True)
+        flames_input = output_folder / "flames_input"
+
+        return {
+            "status": "success",
+            "log_file": str(log_file),
+            "output_dir": str(output_folder),
+            "flames_input": str(flames_input),
+        }
+
+    except subprocess.CalledProcessError as e:
+        return {
+            "status": "failed",
+            "log_file": str(log_file),
+            "returncode": e.returncode,
+        }

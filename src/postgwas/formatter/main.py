@@ -1,4 +1,10 @@
-import sys
+import sys,os
+from pathlib import Path
+import shutil
+import traceback
+
+from postgwas.formatter.to_ldpred import vcf_to_ldpred
+
 
 def create_magma_inputs(args):
     """Handler for MAGMA conversion."""
@@ -32,19 +38,36 @@ def create_finemap_inputs(args):
     return(finemap_inputs)
 
 
+
+
 def create_ldpred_inputs(args):
-    """Handler for FINEMAP conversion (Placeholder)."""
+    """
+    Wrapper to call vcf_to_ldpred from CLI args.
+    """
+    # 1. Resolve BCFtools path
+    bcf_cmd = getattr(args, "bcftools", None)
+    
+    # Fallback/Safety Check
+    if not bcf_cmd:
+        bcf_cmd = shutil.which("bcftools")
+        if not bcf_cmd:
+             # Last resort fallback if shutil fails but we assume it's in path
+             bcf_cmd = "bcftools"
+
     try:
-        from postgwas.formatter.to_ldpred import vcf_to_ldpred
-        finemap_inputs=vcf_to_ldpred(
+        # 2. Call the logic function
+        return vcf_to_ldpred(
             sumstat_vcf=args.vcf, 
             output_folder=args.outdir,
-            sample_name=args.sample_id
-            )
+            sample_name=args.sample_id,
+            bcftools_path=bcf_cmd,
+            nthreads=args.nthreads
+        )
+
     except Exception as e:
-        print(f"❌ Error: {e}", file=sys.stderr)
-        sys.exit(1)
-    return(finemap_inputs)
+        print("\n❌ Error in create_ldpred_inputs:")
+        traceback.print_exc() # This will show you EXACTLY where it failed
+        raise e
 
 
 

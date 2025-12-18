@@ -209,7 +209,7 @@ process_locus <- function(
                       bg_size = 0.01, bg_alpha = 0.15, cs_size = 1, cs_alpha = 0.2)
 
     generate_flames_files(fitted = fitted, ld = ld, snp_df = selected,
-                          outfile = glue("{analysis_folder}/falmes_inputput/{sample_id}_{tag}"))
+                          outfile = glue("{analysis_folder}/flames_input/{sample_id}_{tag}"))
 
     system(glue("mkdir -p {analysis_folder}/locus_files"), ignore.stdout = TRUE)
     system(glue("mkdir -p {analysis_folder}/rds_files"), ignore.stdout = TRUE)
@@ -239,7 +239,7 @@ recover_locus <- function(job, sample_id, analysis_folder, L, timeout_ld, timeou
                           outdir = glue("{analysis_folder}/plots/"), min_pip_label = 0.01,
                           bg_size = 0.01, bg_alpha = 0.15, cs_size = 1, cs_alpha = 0.2)
         generate_flames_files(fitted = fitted, ld = ld_matrix, snp_df = selected,
-                              outfile = glue("{analysis_folder}/falmes_inputput/{sample_id}_{tag}"))
+                              outfile = glue("{analysis_folder}/flames_input/{sample_id}_{tag}"))
         cred_df <- selected_sus[!is.na(cs) & cs != -1]
         system(glue("mkdir -p {analysis_folder}/locus_files"), ignore.stdout = TRUE)
         system(glue("mkdir -p {analysis_folder}/rds_files"), ignore.stdout = TRUE)

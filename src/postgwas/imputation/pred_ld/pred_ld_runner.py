@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
 from concurrent.futures import ProcessPoolExecutor
 import functools
 import os, re,subprocess,time,shutil
@@ -158,6 +157,14 @@ def build_interleaved_chr_order(chromosomes: List) -> List[str]:
 # =============================================================================
 #  MAIN PRED-LD PARALLEL RUNNER
 # =============================================================================
+import sys
+import shutil
+import time
+import threading
+import subprocess
+from pathlib import Path
+from datetime import datetime
+from typing import List, Tuple
 
 def run_pred_ld_parallel(
     predld_input_dir: str,
@@ -172,23 +179,27 @@ def run_pred_ld_parallel(
     threads: int = 6,
 ) -> bool:
     """
-    Fully RAM-aware, big-chromosome-safe PRED-LD parallel runner.
-
-    Rules implemented:
-    -------------------
-    1. Max parallel workers = 2.
-    2. A job can start only if:
-         free_ram_gb >= min(30, total_ram_gb * 0.80)
-       (if RAM cannot be detected, we fall back to "big-chr only" constraint).
-    3. Big chromosomes = {1..6} are never run together.
-       (At most one big chr at a time.)
-    4. chrX always runs last. If missing input → warned but does not crash.
-    5. Workspace is under `output_folder/.predld_work` (host-mounted, large).
-    6. pred_ld.py is auto-located relative to this file (no hard-coded paths).
+    Parallel PRED-LD runner with logging to files.
+    - Standard output is silenced.
+    - Logs are saved to {output_prefix}_chr{ID}_predld.log.
+    - Global info saved to {output_prefix}_master.log.
+    - Screen output: Only a final summary of failed chromosomes.
     """
 
     # -------------------------------------------------------------------------
-    # 0. Locate pred_ld.py dynamically (relative to this file)
+    # Helper: Write to log file with timestamp
+    # -------------------------------------------------------------------------
+    def write_log(file_path: Path, message: str):
+        """Appends a timestamped message to the specified log file."""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            with file_path.open("a") as f:
+                f.write(f"[{timestamp}] {message}\n")
+        except Exception:
+            pass
+
+    # -------------------------------------------------------------------------
+    # 0. Locate pred_ld.py dynamically
     # -------------------------------------------------------------------------
     module_root = Path(__file__).resolve().parent
     pred_ld_script = module_root / "pred_ld.py"
@@ -196,16 +207,20 @@ def run_pred_ld_parallel(
         raise FileNotFoundError(f"ERROR: pred_ld.py not found at {pred_ld_script}")
 
     # -------------------------------------------------------------------------
-    # 1. Normalize and prepare paths
+    # 1. Normalize paths & Setup Master Log
     # -------------------------------------------------------------------------
     predld_input_dir = Path(predld_input_dir).expanduser().resolve()
     output_folder = Path(output_folder).expanduser().resolve()
     pred_ld_ref = Path(pred_ld_ref).expanduser().resolve()
 
     output_folder.mkdir(parents=True, exist_ok=True)
+    
+    master_log_file = output_folder / f"{output_prefix}_master.log"
+    if master_log_file.exists():
+        master_log_file.unlink()
 
     # -------------------------------------------------------------------------
-    # 2. Workspace (host-mounted, avoids /tmp space issues inside Docker)
+    # 2. Workspace Setup
     # -------------------------------------------------------------------------
     workspace = output_folder / ".predld_work"
     if workspace.exists():
@@ -218,37 +233,28 @@ def run_pred_ld_parallel(
     # -------------------------------------------------------------------------
     # 3. Threads / workers & chromosome order
     # -------------------------------------------------------------------------
-    # safe_thread_count only for CPU-side bound; concurrency is 2.
     threads = safe_thread_count(threads, gb_per_thread=30)
     max_workers = min(2, max(1, threads))
-
     chr_order = build_interleaved_chr_order(chromosomes)
 
-    print(f"🧬 Running PRED-LD with {max_workers} parallel workers")
-    print(f"📁 Input dir : {predld_input_dir}")
-    print(f"📁 Output dir: {output_folder}")
-    print(f"📁 Workspace : {workspace}")
-    print(f"📁 Ref LD    : {pred_ld_ref}")
-    print(f"🧬 Chromosomes (interleaved): {', '.join(chr_order)}")
+    write_log(master_log_file, f"Running PRED-LD with {max_workers} parallel workers")
+    write_log(master_log_file, f"Input dir : {predld_input_dir}")
+    write_log(master_log_file, f"Output dir: {output_folder}")
+    write_log(master_log_file, f"Workspace : {workspace}")
+    write_log(master_log_file, f"Ref LD    : {pred_ld_ref}")
+    write_log(master_log_file, f"Chromosomes: {', '.join(chr_order)}")
 
     # -------------------------------------------------------------------------
     # 4. Shared state for scheduling
     # -------------------------------------------------------------------------
     lock = threading.Lock()
     running_chroms: set[str] = set()
-    running_big: bool = False  # "is any big chromosome currently running?"
-
-    # Track which ones succeeded / failed
+    running_big: bool = False
     succeeded: list[str] = []
-    failed: list[tuple[str, str]] = []  # (chr, reason)
+    failed: list[Tuple[str, str]] = []
 
-    def wait_until_allowed(chr_id: str) -> None:
-        """
-        Busy-wait (with sleep) until both RAM and big-chr constraints allow
-        this chromosome to start.
-        """
+    def wait_until_allowed(chr_id: str, log_file: Path) -> None:
         nonlocal running_big
-
         while True:
             with lock:
                 total_gb, free_gb = get_memory_status()
@@ -258,7 +264,6 @@ def run_pred_ld_parallel(
                     threshold = min(20.0, total_gb * 0.80)
                     free_ok = free_gb >= threshold
                 else:
-                    # Cannot measure RAM → only enforce big-chr constraint
                     threshold = None
                     free_ok = True
 
@@ -266,121 +271,97 @@ def run_pred_ld_parallel(
                 big_ok = (not this_big) or (not running_big)
 
                 if free_ok and big_ok:
-                    # Reserve slot
                     running_chroms.add(chr_id)
                     if this_big:
                         running_big = True
-                    # Optional: small debug log
+                    
                     if ram_known:
-                        print(
-                            f"🚀 Starting chr{chr_id}: free RAM {free_gb:.1f} GB "
-                            f"(threshold {threshold:.1f} GB), "
-                            f"big_running={running_big}"
-                        )
+                        write_log(log_file, f"🚀 Starting chr{chr_id}: free RAM {free_gb:.1f} GB (threshold {threshold:.1f} GB)")
                     else:
-                        print(
-                            f"🚀 Starting chr{chr_id}: RAM unknown, "
-                            f"big_running={running_big}"
-                        )
+                        write_log(log_file, f"🚀 Starting chr{chr_id}: RAM unknown.")
                     return
 
-                # Not allowed yet → print occasional status
                 if ram_known and not free_ok:
-                    print(
-                        f"⏳ Waiting for RAM before chr{chr_id}: "
-                        f"free={free_gb:.1f} GB, "
-                        f"threshold={threshold:.1f} GB"
-                    )
+                    write_log(log_file, f"⏳ Waiting for RAM: free={free_gb:.1f} GB, needed={threshold:.1f} GB")
                 if this_big and not big_ok:
-                    print(f"⏳ Waiting: another big chromosome already running.")
+                    write_log(log_file, "⏳ Waiting: another big chromosome is running.")
 
-            time.sleep(10)  # Sleep outside lock
+            time.sleep(10)
 
     def release_chr(chr_id: str) -> None:
-        """Release this chromosome from the running set and big flag."""
         nonlocal running_big
         with lock:
             running_chroms.discard(chr_id)
             if is_big_chr(chr_id):
-                # If no other big chr is running, clear the flag
                 if not any(is_big_chr(c) for c in running_chroms):
                     running_big = False
 
     # -------------------------------------------------------------------------
-    # 5. Worker (per chromosome)
+    # 5. Worker (SILENT MODE)
     # -------------------------------------------------------------------------
     def worker(chr_id: str) -> None:
         chr_input = predld_input_dir / f"{output_prefix}_chr{chr_id}_predld_input.tsv"
         log_file = output_folder / f"{output_prefix}_chr{chr_id}_predld.log"
 
-        # chrX often missing: soft skip if input file not found
+        if log_file.exists():
+            log_file.unlink()
+        write_log(log_file, f"--- Processing Chromosome {chr_id} ---")
+
         if not chr_input.exists():
             msg = f"PRED-LD input missing for chr{chr_id}: {chr_input}"
-            print(f"⚠️ chr{chr_id} skipped: {msg}")
+            write_log(log_file, f"⚠️ SKIPPED: {msg}")
+            # REMOVED: print(f"⚠️ chr{chr_id} skipped...")
             failed.append((chr_id, msg))
             return
 
-        # Wait until RAM and big-chr constraints allow us to start
-        wait_until_allowed(chr_id)
+        wait_until_allowed(chr_id, log_file)
 
         try:
             cmd = [
-                "python",
-                str(pred_ld_script),
-                "--file-path",
-                str(chr_input),
-                "--pop",
-                population,
-                "--ref",
-                ref,
-                "--ref_dir",
-                str(local_ref),
-                "--r2threshold",
-                str(r2threshold),
-                "--maf",
-                str(maf),
-                "--out_dir",
-                str(output_folder),
+                "python", str(pred_ld_script),
+                "--file-path", str(chr_input),
+                "--pop", population,
+                "--ref", ref,
+                "--ref_dir", str(local_ref),
+                "--r2threshold", str(r2threshold),
+                "--maf", str(maf),
+                "--out_dir", str(output_folder),
             ]
 
-            with log_file.open("w") as log:
-                proc = subprocess.run(cmd, stdout=log, stderr=log)
+            with log_file.open("a") as log_f:
+                log_f.write("\n--- SUBPROCESS OUTPUT START ---\n")
+                log_f.flush()
+                proc = subprocess.run(cmd, stdout=log_f, stderr=log_f)
+                log_f.write("\n--- SUBPROCESS OUTPUT END ---\n")
 
             if proc.returncode != 0:
-                if proc.returncode == -9:
-                    reason = (
-                        f"PRED-LD failed for chr{chr_id} "
-                        f"(likely out-of-memory, exit={proc.returncode}). "
-                        f"See log: {log_file}"
-                    )
-                else:
-                    reason = (
-                        f"PRED-LD failed for chr{chr_id} "
-                        f"(exit={proc.returncode}). See log: {log_file}"
-                    )
-                print(f"❌ {reason}")
+                reason = f"PRED-LD failed for chr{chr_id} (exit={proc.returncode}). See log: {log_file}"
+                write_log(log_file, f"❌ {reason}")
+                # REMOVED: print(f"❌ {reason}")
                 failed.append((chr_id, reason))
                 return
 
             expected_out = output_folder / f"imputation_results_chr{chr_id}.txt"
             if not expected_out.exists():
-                reason = (
-                    f"PRED-LD output missing for chr{chr_id}: {expected_out}. "
-                    f"See log: {log_file}"
-                )
-                print(f"❌ {reason}")
+                reason = f"PRED-LD output missing for chr{chr_id}. See log: {log_file}"
+                write_log(log_file, f"❌ {reason}")
+                # REMOVED: print(f"❌ {reason}")
                 failed.append((chr_id, reason))
                 return
 
-            print(f"✅ chr{chr_id} finished successfully.")
+            write_log(log_file, f"✅ chr{chr_id} finished successfully.")
             succeeded.append(chr_id)
 
+        except Exception as e:
+            reason = f"Exception processing chr{chr_id}: {str(e)}"
+            write_log(log_file, f"❌ {reason}")
+            # REMOVED: print(f"❌ {reason}")
+            failed.append((chr_id, reason))
         finally:
-            # Always release the slot
             release_chr(chr_id)
 
     # -------------------------------------------------------------------------
-    # 6. Launch workers (thread-based scheduler)
+    # 6. Launch workers
     # -------------------------------------------------------------------------
     t0 = time.time()
     threads_list: List[threading.Thread] = []
@@ -389,13 +370,9 @@ def run_pred_ld_parallel(
         t = threading.Thread(target=worker, args=(chr_id,), daemon=True)
         threads_list.append(t)
 
-    # Run with at most `max_workers` active threads at any time
     active: List[threading.Thread] = []
-
     for t in threads_list:
-        # Wait until there is a free thread slot
         while True:
-            # Purge finished threads from active list
             active = [thr for thr in active if thr.is_alive()]
             if len(active) < max_workers:
                 t.start()
@@ -403,38 +380,54 @@ def run_pred_ld_parallel(
                 break
             time.sleep(2)
 
-    # Wait for all threads to complete
     for t in threads_list:
         t.join()
 
     # -------------------------------------------------------------------------
-    # 7. Merge per-chrom logs
+    # 7. Merge Logs
     # -------------------------------------------------------------------------
-    merged_log = output_folder / f"{output_prefix}_predld.log"
+    merged_log = output_folder / f"{output_prefix}_predld_combined.log"
+    write_log(master_log_file, f"Merging chromosome logs into {merged_log}")
+    
     with merged_log.open("w") as fout:
+        if master_log_file.exists():
+            with master_log_file.open() as f:
+                fout.write(f.read())
+                fout.write("\n" + "="*80 + "\n")
+        
         for lf in sorted(output_folder.glob(f"{output_prefix}_chr*_predld.log")):
             with lf.open() as f:
+                fout.write(f"\nLOG: {lf.name}\n")
                 fout.write(f.read())
-            lf.unlink()  # remove per-chr logs
-
-    print(f"\n📄 Combined log → {merged_log}")
 
     # -------------------------------------------------------------------------
-    # 8. Summary
+    # 8. Summary (Screen Output Logic)
     # -------------------------------------------------------------------------
     elapsed_min = (time.time() - t0) / 60.0
-    print(f"\n🎯 PRED-LD completed in {elapsed_min:.2f} minutes.")
-    if succeeded:
-        print(f"   ✅ Successful chromosomes: {', '.join(sorted(succeeded, key=str))}")
+    write_log(master_log_file, f"\n🎯 PRED-LD completed in {elapsed_min:.2f} minutes.")
+    
+    # --- CHANGED: Only print one summary line for failures ---
     if failed:
-        print("   ⚠️ Failed / skipped chromosomes:")
+        write_log(master_log_file, "⚠️ Failed / skipped chromosomes:")
+        # Sort keys numerically if possible, else string sort
+        try:
+            # Attempt to sort numerically (1, 2, 10 instead of 1, 10, 2)
+            failed_ids = sorted([str(c) for c, r in failed], key=lambda x: int(x) if x.isdigit() else 999)
+        except:
+            failed_ids = sorted([str(c) for c, r in failed])
+            
+        # Log details to file
         for chr_id, reason in failed:
-            print(f"      chr{chr_id}: {reason}")
+            write_log(master_log_file, f"   chr{chr_id}: {reason}")
+        
+        # Print CONCISE summary to screen
+        print(f"\n❌ PRED-LD Failed for chromosomes: {', '.join(failed_ids)}")
+        print(f"   See detailed logs in: {merged_log}\n")
+    else:
+        print("\n✅ PRED-LD DIRECT run finished.")
 
-    # Return True if at least one chromosome completed successfully
     return bool(succeeded)
 
-from typing import Optional  # make sure this is at top of file
 
 def process_pred_ld_results_all_parallel(
     folder_path: str,
@@ -528,7 +521,7 @@ def process_pred_ld_results_all_parallel(
         key=_chr_sort_key
     )
 
-    print(f"🧬 Detected chromosomes: {', '.join(chromosomes)}")
+    #print(f"🧬 Detected chromosomes: {', '.join(chromosomes)}")
 
     # =====================================================================
     # Per-chromosome worker
@@ -763,17 +756,12 @@ def process_pred_ld_results_all_parallel(
     # =====================================================================
     subprocess.run(
         f"cat {folder_path}/imputation_results_chr*.txt | gzip -c > {output_folder}/{output_prefix}_imputation_results.txt.gz",
-        shell=True,
-        check=False,
-    )
+        shell=True,check=False,)
 
     subprocess.run(
         f"cat {folder_path}/LD_info_TOP_LD_chr*.txt | gzip -c > {output_folder}/{output_prefix}_LD_info_TOP_LD.txt.gz",
-        shell=True,
-        check=False,
-    )
-
+        shell=True, check=False,)
     subprocess.run(f"rm -f {folder_path}/imputation_results_chr*.txt", shell=True, check=False)
     subprocess.run(f"rm -f {folder_path}/LD_info_TOP_LD_chr*.txt", shell=True, check=False)
 
-    return combined_df, corr_df
+    return combined_df, corr_df,config_path

@@ -36,7 +36,7 @@ def get_ldsc_parser(add_help: bool = False) -> argparse.ArgumentParser:
     grp = parser.add_argument_group("LDSC Inputs")
 
     grp.add_argument(
-        "--sumstats",
+        "--ldsc_inut",
         metavar=" ",
         type=validate_path(must_exist=True, must_be_file=True),
         help="Path to the LDSC input tsv file genrated by  postgwas fomatter module",

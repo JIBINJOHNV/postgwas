@@ -1,7 +1,12 @@
-import subprocess
-from pathlib import Path
-import polars as pl
+
 import numpy as np
+import polars as pl
+from pathlib import Path
+import subprocess
+import os
+import datetime
+import logging
+
 
 
 
@@ -10,25 +15,16 @@ def ld_clump_by_regions(
     output_folder: str,
     sample_name: str,
     population: str = "EUR",
-    bcftools: str ="bcftools",
+    bcftools: str = "bcftools",
     nthreads=4
 ):
     """
-    Extract summary statistics from a VCF and perform LD-block-based pruning
-    using the population-specific LDblock INFO field (EUR_LDblock, AFR_LDblock, or EAS_LDblock),
-    keeping the SNP with the highest LP (-log10 p-value) per block.
-
-    Adds:
-      - raw P-value column (10^-LP)
-      - START and END columns parsed from LDblock string (e.g., "EUR-6_26791233_28017819")
-
-    The intermediate file is compressed (.tsv.gz).
-
-    Output
-    ------
-    <output_folder>/<sample_name>_vcf.tsv.gz
-    <output_folder>/<sample_name>_LDpruned_<population>.tsv
-    <output_folder>/<sample_name>_LDpruned_<population>_sig.tsv
+    Extract summary statistics from a VCF and perform LD-block-based pruning.
+    
+    Changes:
+    - FIX: Uses colon ':' separator in bcftools to prevent 'REF_' tag error.
+    - FIX: Replaces ':' with '_' in Polars for safe ID generation.
+    - Logs command and errors to <sample_name>_ld_clump.log.
     """
     population = population.upper()
     if population not in {"EUR", "AFR", "EAS"}:
@@ -37,75 +33,116 @@ def ld_clump_by_regions(
     vcf_path = Path(sumstat_vcf)
     output_dir = Path(output_folder)
     output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Define filenames
     raw_out = output_dir / f"{sample_name}_vcf.tsv.gz"
     pruned_out = output_dir / f"{sample_name}_LDpruned_{population}.tsv"
     pruned_sig_out = output_dir / f"{sample_name}_LDpruned_{population}_sig.tsv"
-    # --------------------- 1️⃣ Extract INFO fields ---------------------
-    #print("🔹 Extracting fields from VCF with bcftools...")
+    log_file = output_dir / f"{sample_name}_ld_clump.log"
+
+    # --------------------- 1️⃣ Extract INFO fields (with Logging) ---------------------
+    
+    # FIX: Use ':' separators here. bcftools handles %REF: correctly. 
+    # We will convert ':' to '_' in the Polars step below.
     cmd = f"""
     {{
         printf "SNP\\tCHR\\tBP\\tREF\\tALT\\tBETA\\tSE\\tNEF\\tAF\\tAFR\\tEAS\\tEUR\\tSAS\\tLP\\tNC\\tNCO\\tEUR_LDblock\\tAFR_LDblock\\tEAS_LDblock\\tBCSQ\\n"
         {bcftools} view --threads {nthreads} --min-alleles 2 --max-alleles 2 "{vcf_path}" | \
-        {bcftools} query -f '%CHROM:%POS:%REF:%ALT\\t%CHROM\\t%POS\\t%REF\\t%ALT\\t[%ES]\\t[%SE]\\t[%NEF]\\t[%AF]\\t[%AFR]\\t[%EAS]\\t[%EUR]\\t[%SAS]\\t[%LP]\\t[%NC]\\t[%NCO]\\t%INFO/EUR_LDblock\\t%INFO/AFR_LDblock\\t%INFO/EAS_LDblock\\t[%BCSQ]\\n' | \
-        sed 's|:|_|g'
+        {bcftools} query -f '%CHROM:%POS:%REF:%ALT\\t%CHROM\\t%POS\\t%REF\\t%ALT\\t[%ES]\\t[%SE]\\t[%NEF]\\t[%AF]\\t[%AFR]\\t[%EAS]\\t[%EUR]\\t[%SAS]\\t[%LP]\\t[%NC]\\t[%NCO]\\t%INFO/EUR_LDblock\\t%INFO/AFR_LDblock\\t%INFO/EAS_LDblock\\t[%BCSQ]\\n'
     }} | gzip -c > "{raw_out}"
     """
-    try:
-        subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
-        #print(f"✅ Extracted and compressed summary stats → {raw_out}")
-    except subprocess.CalledProcessError as e:
-        print(f"❌ bcftools extraction failed: {e}")
-        return None
+
+    with open(log_file, "w") as log:
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log.write(f"[{timestamp}] STARTING LD CLUMPING\n")
+        log.write(f"[{timestamp}] COMMAND:\n{cmd}\n\n")
+        log.write(f"[{timestamp}] BCFTOOLS OUTPUT (STDERR):\n")
+        log.flush()
+
+        try:
+            subprocess.run(
+                cmd, 
+                shell=True, 
+                check=True, 
+                executable="/bin/bash", 
+                stderr=log, 
+                stdout=log 
+            )
+            log.write(f"\n[{timestamp}] ✅ Extraction successful -> {raw_out}\n")
+            
+        except subprocess.CalledProcessError as e:
+            err_msg = f"❌ bcftools extraction failed with exit code {e.returncode}. Check log: {log_file}"
+            print(err_msg)
+            log.write(f"\n[{timestamp}] {err_msg}\n")
+            return None
+
     # --------------------- 2️⃣ Load with Polars ---------------------
-    #print("🔹 Loading compressed TSV with Polars...")
-    df = pl.read_csv(raw_out, separator="\t", null_values=[".", "NA"], infer_schema_length=20000)
-    # --------------------- 3️⃣ Prepare LP, P-value, and LDblock parsing ---------------------
+    try:
+        df = pl.read_csv(raw_out, separator="\t", null_values=[".", "NA"], infer_schema_length=20000)
+    except Exception as e:
+        with open(log_file, "a") as log:
+            log.write(f"\n❌ Error reading TSV file: {e}\n")
+        print(f"❌ Error reading extracted TSV: {e}")
+        return None
+
+    # --------------------- 3️⃣ Prepare Columns ---------------------
     ld_field = f"{population}_LDblock"
     if ld_field not in df.columns:
-        raise ValueError(f"Expected LD block column '{ld_field}' not found in file.")
+        msg = f"Expected LD block column '{ld_field}' not found in file."
+        with open(log_file, "a") as log: log.write(f"\n❌ {msg}\n")
+        raise ValueError(msg)
+
+    # Filter empty LD blocks first
+    df = df.filter(pl.col(ld_field).is_not_null())
+
+    if df.height == 0:
+        msg = "⚠️ No variants found with LD block annotations. Check population match."
+        print(msg)
+        with open(log_file, "a") as log: log.write(f"\n{msg}\n")
+        return None
+
     df = (
         df.with_columns([
+            # FIX: Convert ':' to '_' to finalize ID format (e.g., 1:100:A:T -> 1_100_A_T)
+            pl.col("SNP").str.replace_all(":", "_"),
             pl.col(ld_field).alias("LDblock"),
-            pl.col("LP").cast(pl.Float64),
+            pl.col("LP").cast(pl.Float64, strict=False),
         ])
-        .filter(pl.col("LDblock").is_not_null())
+        .filter(pl.col("LP").is_not_null())
         .with_columns([
             (10 ** (-pl.col("LP"))).alias("P_value"),
-            # Split LDblock to extract start and end coordinates
             pl.col("LDblock").str.split("_").alias("LD_parts")
         ])
         .with_columns([
-            pl.col("LD_parts").list.get(1).cast(pl.Int64).alias("START"),
-            pl.col("LD_parts").list.get(2).cast(pl.Int64).alias("END"),
+            pl.col("LD_parts").list.get(1).cast(pl.Int64, strict=False).alias("START"),
+            pl.col("LD_parts").list.get(2).cast(pl.Int64, strict=False).alias("END"),
         ])
-        .drop("LD_parts")  # keep LDblock, drop temp list
+        .drop("LD_parts")
     )
+
     # --------------------- 4️⃣ LD-block-based pruning ---------------------
     pruned = (
         df.sort("LP", descending=True)
           .group_by("LDblock", maintain_order=True)
-          .head(1) )
+          .head(1)
+    )
+
     # --------------------- 5️⃣ Genome-wide significant subset ---------------------
-    pruned_sig = pruned.filter(pl.col("LP") > 7.3)  # p < 5×10⁻⁸
+    pruned_sig = pruned.filter(pl.col("LP") >= 7.3)
+
     # --------------------- 6️⃣ Save outputs ---------------------
     pruned.write_csv(pruned_out, separator="\t")
     pruned_sig.write_csv(pruned_sig_out, separator="\t")
-    # print(f"✅ LD-block pruned (by LP, {population}) SNPs → {pruned_out}")
-    # print(f"✅ Significant (LP > 7.3, {population}) SNPs → {pruned_sig_out}")
-    # print(f"✅ Added columns: START, END (from LDblock string)")
-    return str(pruned_out)
 
+    with open(log_file, "a") as log:
+        log.write(f"✅ LD-block pruned file: {pruned_out} (Rows: {pruned.height})\n")
+        log.write(f"✅ Significant SNPs file: {pruned_sig_out} (Rows: {pruned_sig.height})\n")
 
-
+    return {
+        "ldpruned_sig_file": str(pruned_sig_out),
+        "ldpruned_file": str(pruned_out),
+        "log_file": str(log_file)
+    }
 
 def ld_clump_standard():
-    pass 
-
-
-
-# ld_prune(
-#     sumstat_vcf="/Users/JJOHN41/Documents/developing_software/postgwas/data/oudir/PGC3_SCZ_european/PGC3_SCZ_european_GRCh37_merged.vcf.gz",
-#     output_folder="/Users/JJOHN41/Documents/developing_software/postgwas/data/oudir/PGC3_SCZ_european/",
-#     sample_name="PGC3_SCZ_european",
-#     population="EUR"
-# )
+    pass

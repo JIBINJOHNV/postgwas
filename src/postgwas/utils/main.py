@@ -3,10 +3,11 @@ import multiprocessing
 from datetime import datetime
 from pathlib import Path
 import argparse
-from pathlib import Path
 import glob
 import sys
 import subprocess
+import shutil
+from typing import Dict
 
 
 ## auto_detect_workers
@@ -21,6 +22,31 @@ import subprocess
 ## safe_thread_count(requested_threads, gb_per_thread = 20)
 ## run_cmd(cmd)
 
+
+
+
+def validate_alphanumeric(value: str) -> str:
+    import argparse, re
+    if value is None:
+        raise argparse.ArgumentTypeError("Value cannot be empty.")
+    v = value.strip()
+    if not re.match(r'^[A-Za-z0-9_]+$', v):
+        raise argparse.ArgumentTypeError(
+            f"Invalid value '{value}': must contain only letters, digits, and underscores."
+        )
+    return v
+
+
+
+def require_executable(name: str):
+    """
+    Ensure an external executable exists in PATH.
+    """
+    if shutil.which(name) is None:
+        raise EnvironmentError(
+            f"❌ Required executable not found in PATH: '{name}'\n"
+            f"👉 Please install it or activate the correct environment."
+        )
 
 
 # ------------------------------------------------------------
@@ -72,47 +98,152 @@ def infer_mount_root(*paths):
     return Path(common)
 
 
-
-
 def auto_detect_workers():
     """
     Universal CPU auto-detection.
-    - Works on macOS, Linux, Windows, HPC (SLURM), Docker/Cgroups.
-    - Always returns max(1, available_cpus - 1) for safe use.
+    - Works on macOS, Linux, Windows
+    - Respects SLURM limits
+    - Respects Docker / cgroup v1 & v2 CPU quotas
+    - Leaves 1–2 CPUs free for system stability
     """
+
     # ----------------------------------------------------
-    # 1) Check SLURM limits (HPC clusters)
+    # 1) SLURM limits (authoritative on HPC)
     # ----------------------------------------------------
     slurm_vars = [
         "SLURM_CPUS_PER_TASK",
         "SLURM_CPUS_ON_NODE",
-        "SLURM_JOB_CPUS_PER_NODE"
+        "SLURM_JOB_CPUS_PER_NODE",
     ]
+
     for var in slurm_vars:
         val = os.environ.get(var)
-        if val and val.isdigit():
-            cpus = int(val)
-            return max(1, cpus - 1)
+        if val:
+            # Handle formats like "16", "16(x2)"
+            try:
+                cpus = int(val.split("(")[0])
+                return max(1, cpus - 1)
+            except ValueError:
+                pass
+
     # ----------------------------------------------------
-    # 2) Check cgroup CPU quota (Docker / Kubernetes)
+    # 2) cgroup v2 (modern Docker / Kubernetes)
     # ----------------------------------------------------
     try:
-        cfs_quota = int(open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read())
-        cfs_period = int(open("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read())
-        if cfs_quota > 0:
-            cpus = cfs_quota // cfs_period
-            if cpus > 0:
-                return max(1, cpus - 2)
-    except:
+        cpu_max_path = "/sys/fs/cgroup/cpu.max"
+        if os.path.exists(cpu_max_path):
+            quota, period = open(cpu_max_path).read().strip().split()
+            if quota != "max":
+                cpus = int(quota) // int(period)
+                if cpus > 0:
+                    return max(1, cpus - 2)
+    except Exception:
         pass
+
     # ----------------------------------------------------
-    # 3) Fallback to the OS-reported CPU count
+    # 3) cgroup v1 (older Docker)
+    # ----------------------------------------------------
+    try:
+        quota_path = "/sys/fs/cgroup/cpu/cpu.cfs_quota_us"
+        period_path = "/sys/fs/cgroup/cpu/cpu.cfs_period_us"
+
+        if os.path.exists(quota_path) and os.path.exists(period_path):
+            quota = int(open(quota_path).read())
+            period = int(open(period_path).read())
+
+            if quota > 0 and period > 0:
+                cpus = quota // period
+                if cpus > 0:
+                    return max(1, cpus - 2)
+    except Exception:
+        pass
+
+    # ----------------------------------------------------
+    # 4) OS fallback (macOS / Linux / Windows)
     # ----------------------------------------------------
     try:
         cpus = multiprocessing.cpu_count()
         return max(1, cpus - 1)
-    except:
-        return 1  # absolute fallback
+    except Exception:
+        return 1
+
+
+def auto_detect_ram_gb():
+    """
+    Universal RAM auto-detection.
+    - Respects SLURM memory limits
+    - Respects Docker / cgroup v1 & v2 memory limits
+    - Works on Linux, macOS, Windows
+    - Returns total usable RAM in GB (float)
+    """
+
+    # ----------------------------------------------------
+    # 1) SLURM memory limits (authoritative on HPC)
+    # ----------------------------------------------------
+    slurm_mem = os.environ.get("SLURM_MEM_PER_NODE")
+    if slurm_mem and slurm_mem.isdigit():
+        # SLURM reports MB
+        return float(slurm_mem) / 1024
+
+    slurm_mem_cpu = os.environ.get("SLURM_MEM_PER_CPU")
+    if slurm_mem_cpu and slurm_mem_cpu.isdigit():
+        slurm_cpus = os.environ.get("SLURM_CPUS_PER_TASK")
+        if slurm_cpus and slurm_cpus.isdigit():
+            return (float(slurm_mem_cpu) * int(slurm_cpus)) / 1024
+
+    # ----------------------------------------------------
+    # 2) cgroup v2 memory limit (modern Docker / Kubernetes)
+    # ----------------------------------------------------
+    try:
+        mem_max_path = "/sys/fs/cgroup/memory.max"
+        if os.path.exists(mem_max_path):
+            val = open(mem_max_path).read().strip()
+            if val != "max":
+                return int(val) / 1024**3
+    except Exception:
+        pass
+
+    # ----------------------------------------------------
+    # 3) cgroup v1 memory limit (older Docker)
+    # ----------------------------------------------------
+    try:
+        mem_limit_path = "/sys/fs/cgroup/memory/memory.limit_in_bytes"
+        if os.path.exists(mem_limit_path):
+            val = int(open(mem_limit_path).read())
+            # Docker sometimes reports a huge number when unlimited
+            if val < 1 << 60:
+                return val / 1024**3
+    except Exception:
+        pass
+
+    # ----------------------------------------------------
+    # 4) Linux host RAM (/proc/meminfo)
+    # ----------------------------------------------------
+    try:
+        if os.path.exists("/proc/meminfo"):
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    if line.startswith("MemTotal"):
+                        kb = int(line.split()[1])
+                        return kb / 1024 / 1024
+    except Exception:
+        pass
+
+    # ----------------------------------------------------
+    # 5) macOS
+    # ----------------------------------------------------
+    try:
+        ram_bytes = int(
+            subprocess.check_output(["sysctl", "-n", "hw.memsize"]).strip()
+        )
+        return ram_bytes / 1024**3
+    except Exception:
+        pass
+
+    # ----------------------------------------------------
+    # 6) Absolute fallback
+    # ----------------------------------------------------
+    return 0.0
 
 
 
@@ -334,33 +465,8 @@ def validate_plink_prefix(prefix: str):
 
 
 
-def validate_alphanumeric(value: str) -> str:
-    """
-    Generalized validator:
-    Allows only letters, digits, and underscores.
-    No spaces or punctuation.
-    Safe for filenames and all GWAS sample IDs.
-    """
-    import argparse
-    import re
-
-    if value is None:
-        raise argparse.ArgumentTypeError("Value cannot be empty.")
-
-    v = value.strip()
-
-    # Allowed: A–Z, a–z, 0–9, underscore
-    if not re.match(r'^[A-Za-z0-9_]+$', v):
-        raise argparse.ArgumentTypeError(
-            f"Invalid value '{value}': must contain only letters, digits, and underscores."
-        )
-
-    return v
 
 
-
-import glob
-from pathlib import Path
 def validate_prefix_files(prefix: str, suffixes):
     """
     General-purpose validator:
@@ -444,3 +550,66 @@ def detect_total_memory_gb():
 
     # Last safe fallback
     return 4  # assume at least 4GB
+
+
+
+
+
+def decide_magma_batches_from_annot(
+    annot_file: str,
+    min_genes_per_batch: int = 1000,
+    ram_per_cpu_gb: int = 8,
+):
+    """
+    Decide MAGMA batch count using:
+      - gene count from MAGMA .genes.annot
+      - auto-detected CPUs (SLURM / Docker / local)
+      - auto-detected RAM (SLURM / Docker / local)
+    """
+    def count_genes_from_magma_annot(annot_file):
+        """
+        Count genes from a MAGMA .genes.annot file.
+        """
+        count = 0
+        with open(annot_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                count += 1
+        return count
+
+    # ----------------------------------------------------
+    # 1) Count genes from MAGMA annotation file
+    # ----------------------------------------------------
+    total_genes = count_genes_from_magma_annot(annot_file)
+
+    if total_genes <= 0:
+        return 1
+
+    # ----------------------------------------------------
+    # 2) Auto-detect resources
+    # ----------------------------------------------------
+    cpus = auto_detect_workers()
+    ram_gb = auto_detect_ram_gb()
+
+    # ----------------------------------------------------
+    # 3) Limit workers by RAM (≥ 8 GB per CPU)
+    # ----------------------------------------------------
+    max_workers_by_ram = max(1, int(ram_gb // ram_per_cpu_gb))
+
+    # Effective usable workers
+    workers = max(1, min(cpus, max_workers_by_ram))
+
+    # ----------------------------------------------------
+    # 4) Gene-based upper bound on batches
+    #    (minimum 1000 genes per batch)
+    # ----------------------------------------------------
+    max_batches_by_genes = max(1, total_genes // min_genes_per_batch)
+
+    # ----------------------------------------------------
+    # 5) Final safe batch count
+    # ----------------------------------------------------
+    total_batches = max(1, min(workers, max_batches_by_genes))
+
+    return total_batches

@@ -41,7 +41,7 @@ def main():
     args = parser.parse_args()
 
     # ─── Step 1: Run PRED-LD imputation ─────────────────────────────────────────────
-    print("🚀 Starting PRED-LD imputation pipeline...")
+    #print("🚀 Starting PRED-LD imputation pipeline...")
     run_pred_ld_parallel(
         sumstat_vcf=args.sumstats,
         output_folder=args.out_folder,
@@ -55,7 +55,7 @@ def main():
     )
 
     # ─── Step 2: Process and summarize results ──────────────────────────────────────
-    print("\n📊 Running post-processing (correlations + merging)...")
+    #print("\n📊 Running post-processing (correlations + merging)...")
     combined_df, corr_df = process_pred_ld_results_all_parallel(
         folder_path=args.out_folder,
         output_prefix=args.output_prefix,

@@ -4,40 +4,12 @@ import sys
 from pathlib import Path
 from rich_argparse import RichHelpFormatter
 
-# ---------------------------------------------------------
-# Shared CLI components (must accept add_help=False)
-# ---------------------------------------------------------
-from postgwas.clis.common_cli import (
-    get_defaultresourse_parser,
-    get_genomeversion_parser,
-    get_common_out_parser,
-    get_common_magma_assoc_parser,
-    get_common_pops_parser,     # This contains all PoPS arguments
-)
-
-# Pipeline step parsers
-from postgwas.harmonisation.cli import (
-    get_harmonisation_parser,
-)
-from postgwas.annot_ldblock.cli import (
-    get_annot_ldblock_parser,
-)
-
-
-
-
-import sys
-import argparse
-from pathlib import Path
-
 # Internal imports
-from postgwas.formatter.to_magma import vcf_to_magma
-from postgwas.gene_assoc.magma_main import run_magma_analysis
 from postgwas.pops.pops import pops_main, get_pops_args
 
 
 
-def run_pops_direct(args: argparse.Namespace) -> None:
+def run_pops_direct(args: argparse.Namespace, ctx=None):
     """
     Run PoPS directly using provided arguments.
     This bypasses the full PostGWAS pipeline and runs PoPS only.
@@ -157,79 +129,25 @@ def run_pops_direct(args: argparse.Namespace) -> None:
         if args.pops_verbose
         else "--no_verbose"
     )
-
     # --------------------------------------------
     # Run PoPS
     # --------------------------------------------
-    print(f"\n🚀 Running PoPS with {len(pops_argv)} arguments…")
-    pops_args = get_pops_args(pops_argv)
-    pops_main(vars(pops_args))
+    try:
+        pops_args = get_pops_args(pops_argv)
+        pops_main(vars(pops_args))
+    except SystemExit as e:
+        raise RuntimeError("PoPS exited prematurely") from e
 
     print("\n🎉 PoPS Direct Mode Completed Successfully!")
-    print(f"Output prefix: {pops_out_prefix}\n")
 
+    pops_out_file = f"{pops_out_prefix}.preds"
 
-
-def run_pops_pipeline(args):
-    """
-    Executes the VCF -> MAGMA -> PoPS workflow.
-    args: Namespace object containing all necessary parameters.
-    """
-    print("\n====================")
-    print("      PIPELINE MODE")
-    print("====================")
-
-    # ---------- Step 1: VCF to MAGMA ----------
-    print("\n📌 Step 1 — Preparing MAGMA inputs from VCF...")
-    magma_inputs = vcf_to_magma(
-        sumstat_vcf=args.sumstat_vcf,
-        output_folder=f"{args.outdir}/magma_inputs/",
-        sample_id=args.sample_id,
-    )
-
-    snp_loc_file = magma_inputs["snp_loc_file"]
-    pval_file = magma_inputs["pval_file"]
-
-    # Create MAGMA analysis folder
-    magma_folder = f"{args.outdir}/magma_analysis/"
-    Path(magma_folder).mkdir(parents=True, exist_ok=True)
-
-    # ---------- Step 2: Run MAGMA ----------
-    print("\n📌 Step 2 — Running MAGMA...")
-    log_file = str(Path(magma_folder) / f"{args.sample_id}.magma.log")
-
-    magma_output = run_magma_analysis(
-        magma_analysis_folder=magma_folder,
-        sample_id=args.sample_id,
-        ld_ref=args.ld_ref,
-        gene_loc_file=args.magma_gene_loc_file,
-        snp_loc_file=snp_loc_file,
-        pval_file=pval_file,
-        geneset_file=args.geneset_file,
-        log_file=log_file,
-        window_upstream=args.window_upstream,
-        window_downstream=args.window_downstream,
-        gene_model=args.gene_model,
-        n_sample_col=args.n_sample_col,
-        num_batches=args.num_batches,
-        num_cores=args.num_cores,
-        seed=args.seed,
-        magma=args.magma,
-    )
-
-    # ---------- Step 3: Run PoPS ----------
-    print("\n📌 Step 3 — Running PoPS...")
-
-    pops_folder = f"{args.outdir}/"
-    Path(pops_folder).mkdir(parents=True, exist_ok=True)
-    
-    # Construct PoPS argument list. instead of this arg need to update
-    pops_argv = [
-        "--gene_annot_path", args.pops_gene_loc_file,
-        "--feature_mat_prefix", args.feature_mat_prefix,
-        "--num_feature_chunks", str(args.num_feature_chunks),
-        "--magma_prefix", magma_output["merged_prefix"],
-        "--out_prefix", f'{pops_folder}/{args.sample_id}_pops',
-    ]
-    
-    run_pops_direct(args)
+    result = {
+        "status": "success",
+        "pops_file": pops_out_file,
+        "output_dir": str(pops_folder),
+        "out_prefix": str(pops_out_prefix),
+    }
+    print("DEBUG PoPS return:", result)
+    ctx["pops_output"] = pops_out_file
+    return result

@@ -11,7 +11,7 @@ def run_ldsc_direct(args):
     out_prefix = Path(args.outdir) / args.sample_id  # depending on get_common_out_parser impl
     if args.heritability_tool == "ldsc":
         run_ldsc(
-            sumstats_tsv=str(args.sumstats),
+            sumstats_tsv=str(args.ldsc_inut),
             out_prefix=str(out_prefix),
             hm3_snplist=str(args.merge_alleles),
             ldscore_dir=str(args.ref_ld_chr),
