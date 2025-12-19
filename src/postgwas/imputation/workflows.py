@@ -35,7 +35,8 @@ def run_sumstat_imputation_direct(args,ctx=None):
             ref=args.ref,
             threads=args.nthreads
         )
-        print("✅ PRED-LD DIRECT run finished.")
+        print("     ✅ Sumstat Imputation using PRED-LD software completed.")
+        print(" ")
     else:
         raise ValueError(f"Imputation tool not yet implemented for DIRECT mode: {tool}")
     combined_df, corr_df,config_path=process_pred_ld_results_all_parallel(
@@ -52,5 +53,4 @@ def run_sumstat_imputation_direct(args,ctx=None):
     outputs = run_harmonisation(args)
     if ctx is not None:
         ctx["imputation"] = outputs
-    print(outputs)
     return outputs

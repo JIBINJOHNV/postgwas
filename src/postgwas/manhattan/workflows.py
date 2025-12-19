@@ -89,7 +89,7 @@ def run_assoc_plot_direct(args):
     
     log_file = output_file.parent / f"{output_file.stem}.{pheno_tag}.assocplot_{timestamp}.log"
 
-    print(f"   ℹ️  Generating Manhattan plots: {output_file}")
+    print(f"        ℹ️Generating Manhattan plots: {output_file}")
 
     # 5. Run Execution
     with open(log_file, "w") as log:

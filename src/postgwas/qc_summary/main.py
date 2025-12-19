@@ -11,10 +11,15 @@ from postgwas.qc_summary.qc_summary import (
 from postgwas.sumstat_filter.sumstat_filter import filter_gwas_vcf_bcftools
 
 
+
+
+import pandas as pd
+from pathlib import Path  # <--- REQUIRED IMPORT
+
 def run_qc_summary(
     vcf_path: str,
     qc_outdir: str,
-    sample_id :str,
+    sample_id: str,
     external_af_name: str = "EUR",
     allelefreq_diff_cutoff: float = 0.2,
     n_threads: int = 5,
@@ -41,7 +46,8 @@ def run_qc_summary(
         threads=n_threads,
         bcftools_bin=bcftools_bin
     )
-    print("postgwas qc summary module started running")
+    print("     postgwas qc summary module started running")
+    
     # ------------------------------------------------------------------
     # 2️⃣ Parse bcftools stats into sectioned DataFrames
     # ------------------------------------------------------------------
@@ -64,15 +70,18 @@ def run_qc_summary(
     # ------------------------------------------------------------------
     data_df.loc["variants_with_missing_extrnal_af"] = raw_data_qc1["missing_extrnal_af"]
     data_df.loc["variants_with_EAF_diff_gt_cutoff"] = raw_data_qc1["af_diff_failed"]
-    data_df=data_df.reset_index()
+    data_df = data_df.reset_index()
 
-    # Save table
-    qc_outdir.mkdir(exist_ok=True)
+    # ------------------------------------------------------------------
+    # 6️⃣ Save table (FIXED PATH HANDLING)
+    # ------------------------------------------------------------------
+    qc_outdir = Path(qc_outdir)  # <--- FIX: Convert string to Path object
+    qc_outdir.mkdir(parents=True, exist_ok=True)
+    
     qc_file = qc_outdir / f"{sample_id}_qc_summary.tsv"
-    data_df.to_csv(qc_file, sep="\t",index=None)
+    data_df.to_csv(qc_file, sep="\t", index=None)
 
     return data_df
-
 
 
 

@@ -139,7 +139,7 @@ def main(model_dir, input, pops_combi, filt, outdir, name="FLAMES_scores"):
     df = df.sort_values("FLAMES_scaled", ascending=False)
     df = df[['locus', 'filename', 'symbol', 'ensg', 'FLAMES_scaled', 'FLAMES_raw', 'estimated_cumulative_precision']]
     df.to_csv(f"{outdir}/{name}.pred", sep="\t", index=False)
-    print(f"output written to {os.path.join(outdir, name)}.pred and {os.path.join(outdir, name)}.raw")
+    print(f"        output written to {os.path.join(outdir, name)}.pred and {os.path.join(outdir, name)}.raw")
     return
 
 

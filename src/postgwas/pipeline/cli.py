@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-PostGWAS — Pipeline CLI (v49, Annotation Order Fix)
+PostGWAS — Pipeline CLI (v52, Error Deduplication Fix)
 
 Changes:
-• FIX: Moved 'annot_ldblock' to run AFTER Imputation. 
-       This ensures imputed variants are correctly annotated with LD blocks before Finemapping.
+• FIX: Groups missing arguments to prevent duplicate error messages.
+  (e.g., reports '--vcf' once, listing all modules that need it).
 """
 
 import argparse
@@ -12,6 +12,9 @@ import sys
 from rich_argparse import RichHelpFormatter
 from rich.console import Console
 from rich.table import Table
+
+# Initialize Rich Console Globally
+console = Console()
 
 # =====================================================================
 # IMPORT ORCHESTRATOR
@@ -50,7 +53,8 @@ from postgwas.clis.common_cli import (
     get_assoc_plot_parser,
     get_magma_binary_parser,
     get_bcftools_binary_parser,
-    get_plink_binary_parser
+    get_plink_binary_parser,
+    sumstat_summary_arg_parser
 )
 
 def get_qc_parser():
@@ -68,7 +72,6 @@ MODULE_DESCRIPTIONS = {
     "annot_ldblock": ["Annotates variants with LD blocks."],
     "formatter": ["Converts harmonised VCF to tool-specific formats."],
     "sumstat_filter": ["Filters summary statistics: INFO, MAF, QC."],
-    "post_imputation_filter": ["SECONDARY FILTER: Runs automatically after Harmonisation."],
     "imputation": ["Performs summary statistics imputation using PRED-LD."],
     "finemap": ["Runs SuSiE fine-mapping."],
     "ld_clump": ["Runs PLINK LD-clumping."],
@@ -80,6 +83,8 @@ MODULE_DESCRIPTIONS = {
     "manhattan": ["Generates Manhattan & QQ plots."],
     "qc_summary": ["Generates QC summaries."],
 }
+
+#"post_imputation_filter": ["SECONDARY FILTER: Runs automatically after Harmonisation."],
 
 MODULE_DEPENDENCIES = {
     "annot_ldblock": [],
@@ -114,7 +119,7 @@ MODULE_PARSERS = {
     "imputation": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_common_imputation_parser, get_bcftools_binary_parser],
     "heritability": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_ldsc_common_parser],
     "manhattan": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_assoc_plot_parser],
-    "qc_summary": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_qc_parser],
+    "qc_summary": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_qc_parser,sumstat_summary_arg_parser, get_bcftools_binary_parser],
 }
 
 # =====================================================================
@@ -134,16 +139,16 @@ def resolve_dependencies_unique(mods):
     return resolved
 
 def print_full_pipeline_help(modules, parser):
-    print("\n❗ Required arguments, resources, or dependencies are missing.")
-    print("   Displaying full pipeline help:\n")
-    print("📘 Detailed Pipeline Execution Plan:\n")
+    console.print("\n❗ Required arguments, resources, or dependencies are missing.")
+    console.print("   Displaying full pipeline help:\n")
+    console.print("📘 Detailed Pipeline Execution Plan:\n")
     for idx, m in enumerate(modules, 1):
         if m in MODULE_DESCRIPTIONS:
-            print(f" {idx}) {m}")
+            console.print(f" {idx}) [cyan]{m}[/cyan]")
             for line in MODULE_DESCRIPTIONS[m]:
-                print(f"      • {line}")
+                console.print(f"      • {line}")
         print("")
-    print("👇 Below are the arguments relevant to this pipeline:\n")
+    console.print("👇 Below are the arguments relevant to this pipeline:\n")
     parser.print_help()
 
 # =====================================================================
@@ -165,7 +170,6 @@ def main():
 
     # 2. Show Table if Empty
     if not a1.modules and not (a1.apply_filter or a1.apply_imputation or a1.heritability):
-        console = Console()
         console.print("\nEach module operates directly on your harmonised GWAS VCF.\n")
         console.print("[bold cyan]Usage Example[/bold cyan]\n  postgwas pipeline --modules finemap --apply-filter\n")
         t = Table(title="PostGWAS Pipeline — Available Modules", header_style="bold cyan", show_lines=True)
@@ -213,16 +217,16 @@ def main():
             execution_modules.append("post_imputation_filter")
 
     # --- PHASE 3: ANALYSIS PREP (Annotation & Formatting) ---
-    # FIX: Run annotation AFTER imputation so we annotate the imputed variants
     if "annot_ldblock" in all_active_modules:
         execution_modules.append("annot_ldblock")
 
     downstream_tools = ["ld_clump", "finemap", "magma", "magmacovar", "pops", "flames", "heritability"]
     
-    # Run formatter if we have downstream tools (or if we just finished imputation and need to re-format)
-    # This runs AFTER annot_ldblock, so if annotation changed the VCF, formatter captures it.
-    if is_imputing or any(m in all_active_modules for m in downstream_tools):
-        # Always append formatter here to prepare for analysis
+    # LOGIC FIX: Only run 2nd formatter if downstream analysis exists OR explicit user request
+    has_downstream = any(m in all_active_modules for m in downstream_tools)
+    user_explicitly_asked_format = "formatter" in raw_modules
+
+    if has_downstream or (is_imputing and user_explicitly_asked_format):
         execution_modules.append("formatter")
 
     # --- PHASE 4: DOWNSTREAM ANALYSIS ---
@@ -285,7 +289,7 @@ def main():
     try:
         args = parser.parse_args()
     except ValueError as e:
-        print(f"\n❌ [bold red]Argument Parsing Error:[/bold red] {e}")
+        console.print(f"\n❌ [bold red]Argument Parsing Error:[/bold red] {e}")
         print_full_pipeline_help(execution_modules, parser)
         sys.exit(2)
 
@@ -306,8 +310,11 @@ def main():
         "qc_summary": ["vcf","sample_id","outdir"],
     }
 
-    missing_errors = []
-    
+    # -----------------------------------------------------------
+    # NEW LOGIC: Deduplicate Error Messages
+    # -----------------------------------------------------------
+    missing_args_map = {} # arg_name -> list of modules
+
     check_list = parser_modules.copy()
     if not is_formatter_explicit and "formatter" in check_list:
         check_list.remove("formatter")
@@ -318,12 +325,16 @@ def main():
                 attr_name = arg_name.replace("-", "_")
                 val = getattr(args, attr_name, None)
                 if not val:
-                    missing_errors.append(f"Module '[bold cyan]{m}[/bold cyan]' requires argument [bold red]--{arg_name}[/bold red]")
+                    if arg_name not in missing_args_map:
+                        missing_args_map[arg_name] = []
+                    missing_args_map[arg_name].append(m)
 
-    if missing_errors:
-        print("\n❌ [bold red]Missing Required Arguments:[/bold red]")
-        for err in missing_errors:
-            print(f"   • {err}")
+    if missing_args_map:
+        console.print("\n❌ [bold red]Missing Required Arguments:[/bold red]")
+        for arg, modules in missing_args_map.items():
+            mod_list = ", ".join([f"[cyan]{m}[/cyan]" for m in modules])
+            console.print(f"   • Argument [bold red]--{arg}[/bold red] is required by module(s): {mod_list}")
+
         print_full_pipeline_help(execution_modules, parser)
         sys.exit(2)
 
@@ -341,12 +352,12 @@ def main():
 
         err_msg = str(e).lower()
         if "required" in err_msg or "executable not found" in err_msg:
-             print(f"\n❌ [bold red]Execution Error:[/bold red] {e}") 
+             console.print(f"\n❌ [bold red]Execution Error:[/bold red] {e}") 
              print_full_pipeline_help(execution_modules, parser)
              sys.exit(2)
         raise
 
-    print("\n🎉 Pipeline complete.\n")
+    console.print("\n🎉 Pipeline complete.\n")
 
 if __name__ == "__main__":
     main()

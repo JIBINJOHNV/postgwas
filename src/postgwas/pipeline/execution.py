@@ -1,8 +1,9 @@
 import sys
+from rich.console import Console
 from postgwas.pipeline.runners import RUNNERS
 
-import sys
-from postgwas.pipeline.runners import RUNNERS
+# Initialize Console for Rich Output
+console = Console()
 
 def execute_pipeline(args, modules):
     """
@@ -45,16 +46,15 @@ def execute_pipeline(args, modules):
     # =========================================================
     
     # D. Annotation (Run AFTER Imputation so new variants get annotated)
-    
     if "annot_ldblock" in modules:
         add_unique("annot_ldblock")
 
     # E. Formatter (Run 2: Prepares inputs for Analysis tools)
     # Logic: If we ran imputation, we usually need to re-run formatter for downstream tools.
-    # We use .append() explicitly here to allow a duplicate 'formatter' step if needed.
     downstream_tools = ["finemap", "magma", "magmacovar", "pops", "flames", "ld_clump", "heritability"]
     
     if is_imputing and any(m in modules for m in downstream_tools):
+        # Allow duplicate formatter execution if needed
         if "formatter" in execution_chain: 
             execution_chain.append("formatter") 
         else:
@@ -117,29 +117,32 @@ def execute_pipeline(args, modules):
     # 5. EXECUTION LOOP
     # =========================================================
     
-    print("\n🚀 [bold green]Starting Execution Chain[/bold green]")
+    # FIX: Use console.print() for colors
+    console.print("\n🚀 [bold green]Starting Execution Chain[/bold green]")
     
     if not execution_chain:
-        print("⚠️  [bold yellow]Warning:[/bold yellow] No modules were selected for execution.")
-        print("   Check that your --modules list or flags match the available steps.")
+        console.print("⚠️  [bold yellow]Warning:[/bold yellow] No modules were selected for execution.")
+        console.print("   Check that your --modules list or flags match the available steps.")
 
     for i, module_name in enumerate(execution_chain, 1):
         if module_name not in RUNNERS:
             continue
             
         runner_func = RUNNERS[module_name]
-        print(f"   {i}. Running: [cyan]{module_name}[/cyan]")
         
-        # --- NEW: Inject Step Number for Dynamic Folders ---
-        # This allows runners.py to create folders like "01_sumstat_filter", "02_imputation"
+        # FIX: Use console.print() for colors
+        console.print(f"   {i}. Running: [cyan]{module_name}[/cyan]")
+        
+        # Inject Step Number for Dynamic Folders
         args._step_num = f"{i:02d}"
-        # ---------------------------------------------------
         
         try:
             runner_func(args, ctx)
             
         except Exception as e:
-            print(f"\n❌ [bold red]Pipeline Failed at step: {module_name}[/bold red]")
+            # FIX: Use console.print() for colors
+            console.print(f"\n❌ [bold red]Pipeline Failed at step: {module_name}[/bold red]")
             raise e 
             
-    print("\n✅ [bold green]All tasks completed successfully.[/bold green]\n")
+    # FIX: Use console.print() for colors
+    console.print("\n✅ [bold green]All tasks completed successfully.[/bold green]\n")

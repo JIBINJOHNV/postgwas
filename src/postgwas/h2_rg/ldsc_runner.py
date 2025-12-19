@@ -23,15 +23,15 @@ class Colors:
 # UTILITY PRINT HELPERS
 # =========================================================
 def print_step(msg):
-    print(f"\n{Colors.HEADER}=================================================={Colors.ENDC}")
-    print(f"{Colors.BOLD}STEP: {msg}{Colors.ENDC}")
-    print(f"{Colors.HEADER}=================================================={Colors.ENDC}")
+    print(f"\n      {Colors.HEADER}=================================================={Colors.ENDC}")
+    print(f"        {Colors.BOLD}STEP: {msg}{Colors.ENDC}")
+    print(f"        {Colors.HEADER}=================================================={Colors.ENDC}")
 
 
 def print_error(step_name, specific_msg):
-    print(f"\n{Colors.FAIL}❌ CRITICAL ERROR IN: {step_name}{Colors.ENDC}")
-    print(f"{Colors.WARNING}Details: {specific_msg}{Colors.ENDC}")
-    print(f"Check the log file for full LDSC traceback.\n")
+    print(f"\n      {Colors.FAIL}❌ CRITICAL ERROR IN: {step_name}{Colors.ENDC}")
+    print(f"        {Colors.WARNING}Details: {specific_msg}{Colors.ENDC}")
+    print(f"        Check the log file for full LDSC traceback.\n")
 
 
 # =========================================================
@@ -64,7 +64,7 @@ def run_docker(command_list, log_file, step_name):
         lf.write(f"[{ts}] STARTING: {step_name}\n")
         lf.write(f"[{ts}] COMMAND: {' '.join(command_list)}\n")
 
-    print(f"{Colors.CYAN}Running {step_name}...{Colors.ENDC}")
+    print(f"        {Colors.CYAN}Running {step_name}...{Colors.ENDC}")
 
     try:
         with subprocess.Popen(
@@ -84,7 +84,7 @@ def run_docker(command_list, log_file, step_name):
             if exit_code != 0:
                 raise subprocess.CalledProcessError(exit_code, command_list)
 
-        print(f"{Colors.GREEN}✔ {step_name} Completed Successfully{Colors.ENDC}")
+        print(f"            {Colors.GREEN}✔ {step_name} Completed Successfully{Colors.ENDC}")
 
     except subprocess.CalledProcessError as e:
         print_error(step_name, f"LDSC Docker process exited with code {e.returncode}")
@@ -176,7 +176,7 @@ def run_ldsc(
     # Mount logic
     # -----------------------------------------------------
     mount_root = infer_mount_root(sumstats_tsv, out_prefix, hm3_snplist, ldscore_dir)
-    print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Mount root inferred: {mount_root}")
+    print(f"        [{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Mount root inferred: {mount_root}")
 
     # Helper for docker paths
     mount_arg = f"{mount_root}:{mount_root}"
@@ -184,7 +184,7 @@ def run_ldsc(
     # ----------------------------------------------------------------------------
     # STEP 1 — MUNGE SUMSTATS
     # ----------------------------------------------------------------------------
-    print_step("1. Munge Summary Statistics")
+    #print_step("1. Munge Summary Statistics")
 
     munged_prefix = out_prefix
     munged_file = f"{munged_prefix}.sumstats.gz"
@@ -195,6 +195,7 @@ def run_ldsc(
         "--rm",
         "-v", mount_arg,
         docker_image,
+        "python",
         "munge_sumstats.py",
         "--sumstats", _d(sumstats_tsv),
         "--out", _d(munged_prefix),
@@ -216,7 +217,7 @@ def run_ldsc(
     liab_metrics = {"h2": "N/A", "intercept": "N/A", "ratio": "N/A"}
 
     if samp_prev is not None and pop_prev is not None:
-        print_step("2. LDSC Heritability (Liability Scale)")
+        #print_step("        2. LDSC Heritability (Liability Scale)")
 
         out_liab = f"{munged_prefix}_Liability_scale_h2"
 
@@ -226,6 +227,7 @@ def run_ldsc(
             "--rm",
             "-v", mount_arg,
             docker_image,
+            "python",
             "ldsc.py",
             "--h2", munged_file,
             "--ref-ld-chr", _d(ldscore_dir) + "/",
@@ -239,12 +241,12 @@ def run_ldsc(
         out_liab_log = f"{out_liab}.log"
         liab_metrics = extract_ldsc_metrics(out_liab_log)
     else:
-        print(f"\n{Colors.WARNING}⚠️ Skipping Liability Scale Analysis (Missing samp_prev/pop_prev){Colors.ENDC}")
+        print(f"\n      {Colors.WARNING}⚠️ Skipping Liability Scale Analysis (Missing samp_prev/pop_prev){Colors.ENDC}")
 
     # ----------------------------------------------------------------------------
     # STEP 3 — LDSC (Observed scale) [ALWAYS RUN]
     # ----------------------------------------------------------------------------
-    print_step("3. LDSC Heritability (Observed Scale)")
+    #print_step("3. LDSC Heritability (Observed Scale)")
 
     out_obs = f"{munged_prefix}_h2"
 
@@ -254,6 +256,7 @@ def run_ldsc(
         "--rm",
         "-v", mount_arg,
         docker_image,
+        "python",
         "ldsc.py",
         "--h2", munged_file,
         "--ref-ld-chr", _d(ldscore_dir) + "/",
@@ -264,29 +267,33 @@ def run_ldsc(
     run_docker(cmd_obs, log_file, "LDSC_Observed_scale_HERITABILITY")
     out_obs_log = f"{out_obs}.log"
     obs_metrics = extract_ldsc_metrics(out_obs_log)
-
     # ----------------------------------------------------------------------------
     # COMPLETED
     # ----------------------------------------------------------------------------
-    print(f"\n{Colors.GREEN}{Colors.BOLD}🎉 LDSC PIPELINE COMPLETED!{Colors.ENDC}")
+    # Use \t\t to force exactly two tabs of indentation
+    print(f"\n\t\t{Colors.GREEN}{Colors.BOLD}🎉 LDSC PIPELINE COMPLETED!{Colors.ENDC}")
     
     # Print Table-like Summary
-    print(f"\n{Colors.BOLD}🔹 HERITABILITY RESULTS:{Colors.ENDC}")
-    print("-" * 60)
-    print(f"{'METRIC':<25} | {'OBSERVED SCALE':<15} | {'LIABILITY SCALE':<15}")
-    print("-" * 60)
-    print(f"{'h2 (Heritability)':<25} | {obs_metrics['h2']:<15} | {liab_metrics['h2']:<15}")
-    print(f"{'Intercept':<25} | {obs_metrics['intercept']:<15} | {liab_metrics['intercept']:<15}")
-    print(f"{'Ratio':<25} | {obs_metrics['ratio']:<15} | {liab_metrics['ratio']:<15}")
-    print("-" * 60)
+    print(f"\n\t\t{Colors.BOLD}🔹 HERITABILITY RESULTS:{Colors.ENDC}")
+    
+    # Fix: Put indentation INSIDE the f-string so the dashes are indented
+    print(f"\t\t{'-' * 60}") 
+    
+    print(f"\t\t{'METRIC':<25} | {'OBSERVED SCALE':<15} | {'LIABILITY SCALE':<15}")
+    print(f"\t\t{'-' * 60}")
+    print(f"\t\t{'h2 (Heritability)':<25} | {obs_metrics['h2']:<15} | {liab_metrics['h2']:<15}")
+    print(f"\t\t{'Intercept':<25} | {obs_metrics['intercept']:<15} | {liab_metrics['intercept']:<15}")
+    print(f"\t\t{'Ratio':<25} | {obs_metrics['ratio']:<15} | {liab_metrics['ratio']:<15}")
+    print(f"\t\t{'-' * 60}")
 
-    print(f"\n{Colors.BOLD}📂 OUTPUT FILES:{Colors.ENDC}")
-    print(f"   • Munged:   {munged_file}")
-    print(f"   • Logs:     {log_file}")
-    print(f"   • H2 (Obs): {out_obs_log}")
+    print(f"\n\t\t{Colors.BOLD}📂 OUTPUT FILES:{Colors.ENDC}")
+    # Indent list items slightly more (2 tabs + 3 spaces for alignment)
+    print(f"\t\t   • Munged:   {munged_file}")
+    print(f"\t\t   • Logs:     {log_file}")
+    print(f"\t\t   • H2 (Obs): {out_obs_log}")
     if samp_prev is not None:
-        print(f"   • H2 (Liab):{out_liab_log}")
-
+        print(f"\t\t   • H2 (Liab):{out_liab_log}")
+    print()
     return {
         "munged_sumstats": munged_file,
         "h2_liability": out_liab_log,

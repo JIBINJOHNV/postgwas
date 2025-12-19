@@ -41,7 +41,7 @@ def runtime(func):
         start = time.time()
         func(*args, **kwargs)
         end = time.time()
-        print(f"Runtime: {round(end - start, 2)}")
+        print(f"        Runtime: {round(end - start, 2)}")
 
     return wrapper
 
@@ -1077,10 +1077,10 @@ def check_risk_loci(GenomicRiskLoci, creds, locno, filter):
 def create_95perc_credset(creds, prob_col):
     sorted_data = creds.sort_values(prob_col)
     if sum(sorted_data[prob_col]) < 0.95:
-        print("\nWARNING: The sum of the probabilities is less than 0.95")
+        print("\n           WARNING: The sum of the probabilities is less than 0.95")
         return(creds)
     if sum(sorted_data[prob_col]) > 1.0:
-        print("\nWARNING: The sum of the probabilities is greater than 1.0, rescaling")
+        print("\n           WARNING: The sum of the probabilities is greater than 1.0, rescaling")
         sorted_data[prob_col] = sorted_data[prob_col] / sum(sorted_data[prob_col])
     sorted_data["cumulative_sum"] = sorted_data[prob_col].cumsum()
     creds = sorted_data[sorted_data["cumulative_sum"] >= 0.05]
@@ -1354,7 +1354,7 @@ def main(
                 c95,
             )
         )
-    print('Starting_annotation:')
+    print('     Starting_annotation:')
     for infile in progress_bar(infiles):
         full_annotation_of_credset(*infile)
     return

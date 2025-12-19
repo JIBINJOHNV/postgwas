@@ -100,7 +100,7 @@ def run_flames_direct(args):
         --SNP_col "{snp_col}"
     """
 
-    print("🔥 Running FLAMES annotation…")
+    print("     🔥 Running FLAMES annotation…")
     subprocess.run(cmd_annot, shell=True, check=True)
 
     # ==============================================================
@@ -116,5 +116,6 @@ def run_flames_direct(args):
         --modelpath "{modelpath}"
     """
     subprocess.run(cmd_score, shell=True, check=True)
-    print("🎉 FLAMES direct mode completed successfully!")
+    print("     🎉 FLAMES Analysis completed successfully!")
+    print(" ")
 

@@ -19,25 +19,16 @@ from rich_argparse import RichHelpFormatter
 # =========================================================
 from postgwas.finemap.workflows import (
     run_susie_direct,
-    run_susie_pipeline,
-    run_finemap_direct,
-    run_finemap_pipeline,
 )
 
 # Shared parsers
 from postgwas.clis.common_cli import (
     get_defaultresourse_parser,
-    get_genomeversion_parser,
     get_common_out_parser,
     get_common_susie_arguments,
     get_plink_binary_parser,
-    get_common_sumstat_filter_parser,
     get_finemap_method_parser
 )
-
-from postgwas.harmonisation.cli import get_harmonisation_parser
-from postgwas.annot_ldblock.cli import get_annot_ldblock_parser
-from postgwas.formatter.cli import get_formatter_parser
 
 from postgwas.utils.main import validate_path
 
@@ -114,7 +105,7 @@ def main():
     if args.finemap_method == "susie":
         run_susie_direct(args)
     elif args.finemap_method == "finemap":
-        run_finemap_direct(args)
+        print("FINEMAP method selected. FINEMAP is not yet implemented.")
     else:
         # This branch should ideally not be reached if choices are used for --finemap_method
         print(f"Error: Unknown fine-mapping method '{args.finemap_method}'.")

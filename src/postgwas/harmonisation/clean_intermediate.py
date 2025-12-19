@@ -57,7 +57,6 @@ def clean_intermediate_files(output_dir: str, gwas_outputname):
         os.system(f"rm -f {outdir}/*gwastovcf_chr*_errors.txt {outdir}/*_chr*.dict {outdir}/*_chr*_summary.tsv")
     except Exception as e:
         print(f"⚠️ Cleanup failed: {e}")
-    print("✅ Finished merging metadata files before VCF concatenation.")
     # Placeholder: return paths for later use
     return {
         "errors": f"{outdir}/{gwas_outputname}_gwas2vcf_errors.txt",

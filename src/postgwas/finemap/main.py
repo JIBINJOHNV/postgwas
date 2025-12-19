@@ -51,7 +51,7 @@ def validate_locus_file(path):
         )
         sys.exit(1)
 
-    print(f"✅ Locus file loaded successfully using delimiter '{sep}'.")
+    #print(f"✅ Locus file loaded successfully using delimiter '{sep}'.")
     return df
 
 

@@ -14,7 +14,8 @@ RUN apt-get update && \
         libcurl4-openssl-dev libsuitesparse-dev \
         zlib1g-dev libbz2-dev liblzma-dev \
         ca-certificates pkg-config \
-        libssl-dev libxml2-dev && \
+        libssl-dev libxml2-dev \
+        procps && \
     rm -rf /var/lib/apt/lists/*
 
 # =====================================================================
@@ -27,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN Rscript -e "install.packages(c('data.table','argparse','susieR','Matrix','dplyr'), repos='https://cloud.r-project.org/')"
 
 # =====================================================================
-# Install Docker CLI (STATIC BINARY — avoids libc mismatch)
+# Install Docker CLI
 # =====================================================================
 RUN curl -L https://download.docker.com/linux/static/stable/x86_64/docker-24.0.6.tgz -o /tmp/docker.tgz && \
     tar -xzvf /tmp/docker.tgz -C /tmp && \
@@ -43,10 +44,10 @@ COPY environment.yml /tmp/environment.yml
 RUN micromamba create -y -n postgwas -f /tmp/environment.yml && \
     micromamba clean --all --yes
 
-# Set default environment for interactive shells
-RUN sed -i 's/micromamba activate base/micromamba activate postgwas/g' /etc/skel/.bashrc
+# ⚠️ CRITICAL: Add conda env to PATH so 'postgwas' is found automatically
+ENV PATH="/opt/conda/envs/postgwas/bin:$PATH"
 
-# All following RUN commands executed inside postgwas environment
+# Set shell for subsequent commands
 SHELL ["micromamba", "run", "-n", "postgwas", "/bin/bash", "-c"]
 
 # =====================================================================
@@ -75,12 +76,12 @@ RUN wget https://raw.githubusercontent.com/freeseek/score/master/score.c && \
     wget https://raw.githubusercontent.com/freeseek/score/master/pgs.c && \
     wget https://raw.githubusercontent.com/freeseek/score/master/pgs.mk
 
-# Patch pgs.c for SuiteSparse compatibility
+# Patch pgs.c
 WORKDIR /opt/tools/bcftools-1.22
 RUN sed -i '2254s/^/\/\//' plugins/pgs.c && \
     sed -i '2255s/^/\/\//' plugins/pgs.c
 
-# Build BCFtools + plugins
+# Build BCFtools
 RUN ./configure \
         --prefix=/usr/local \
         --with-htslib=/opt/tools/htslib-1.22 \
@@ -94,24 +95,26 @@ RUN ./configure \
 WORKDIR /opt/postgwas
 COPY . /opt/postgwas
 
-# Install MAGMA
-RUN chmod +x magma/magma && mv magma/magma /usr/local/bin/magma
+# Install MAGMA (Safety check included)
+RUN if [ -f "magma/magma" ]; then \
+      chmod +x magma/magma && mv magma/magma /usr/local/bin/magma; \
+    else \
+      echo "⚠️ MAGMA binary not found in build context. Skipping move."; \
+    fi
 
-# Install PostGWAS itself
+# Install PostGWAS
 RUN pip install --upgrade pip && \
     pip install --no-deps --no-cache-dir -e .
 
 # =====================================================================
-# Switch back to host shell
+# Final Configuration
 # =====================================================================
 SHELL ["/bin/bash", "-c"]
 
-# Create runtime user
-RUN useradd -m pguser
-USER pguser
+# ⚠️ CRITICAL: Stay as ROOT to allow access to /var/run/docker.sock
+USER root
 
-# =====================================================================
-# Entrypoint
-# =====================================================================
+# ⚠️ CRITICAL: Entrypoint set to binary only. 
+# This allows you to run: docker run ... image pipeline ...
 ENTRYPOINT ["micromamba", "run", "-n", "postgwas"]
 CMD ["postgwas", "--help"]

@@ -87,7 +87,6 @@ def get_annot_ldblock_parser(add_help=False):
     )
     group.add_argument(
         "--ld-region-dir",
-        required=True,
         type=validate_path(must_exist=True, must_be_dir=True,dir_must_have_files=True),
         metavar='',
         help=(

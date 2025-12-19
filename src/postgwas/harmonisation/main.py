@@ -444,7 +444,7 @@ def process_one_chromosome(
             "info_qc": info_qc,
             "gwastovcf_exit_code": gwastovcf_exit_code,
         }
-        logger.info(f"✅ Completed chromosome {chromosome}")
+        logger.info(f"      ✅ Completed chromosome {chromosome}")
 
     except Exception as e:
         logger.exception(f"❌ ERROR in chromosome {chromosome}: {e}")
@@ -503,6 +503,7 @@ def gwas_to_vcf_parallel(
     for Linux/Docker (Python 3.8) using spawn-safe ProcessPoolExecutor and
     better logging/progress reporting.
     """
+    safe_print(f"   🔹 Starting GWAS-to-VCF harmonisation pipeline with max_workers={max_workers}")
     # ------------------------------
     # Create output path
     # ------------------------------
@@ -517,10 +518,12 @@ def gwas_to_vcf_parallel(
         output_dir=str(output_dir_path),
     )
 
-    safe_print(
-        f"\n📥 Reading sumstats: {sumstat_file}\n"
-        f"   Polars rows: {polars_rows:,} | Shell-count variants: {file_cvariant_count:,}"
-    )
+    # safe_print(
+    #     f"\n📥 Reading sumstats: {sumstat_file}\n"
+    #     f"   Polars rows: {polars_rows:,} | Shell-count variants: {file_cvariant_count:,}"
+    # )
+    safe_print(f"   Total variants in input file        : {file_cvariant_count:,}")
+    safe_print(f"   Total variants read by the python   : {polars_rows:,}")
 
     validate_gwas_config(sample_column_dict, df)
 
@@ -534,7 +537,7 @@ def gwas_to_vcf_parallel(
         sample_column_dict,
     )
     grch_version = genome_build_info["inferred_build"]
-    safe_print(f"🧬 Inferred genome build: {grch_version}")
+    safe_print(f"   🧬 Inferred genome build: {grch_version}")
 
     # ------------------------------
     # Split by chromosome
@@ -550,9 +553,9 @@ def gwas_to_vcf_parallel(
             continue
 
     n_chr = len(final_chr_files)
-    safe_print(
-        f"🔹 Processing {n_chr} per-chromosome files with max_workers={max_workers}"
-    )
+    # safe_print(
+    #     f"🔹    Processing {n_chr} per-chromosome files with max_workers={max_workers}"
+    # )
     if n_chr == 0:
         raise RuntimeError(
             "No per-chromosome files found after splitting. "
@@ -630,7 +633,7 @@ def gwas_to_vcf_parallel(
                         safe_print(f"{msg} See logs/{sample_column_dict['gwas_outputname']}_chr{chrom_res}.log")
                         errors_seen.append(msg + " " + qc.get("error", ""))
                     else:
-                        safe_print(f"✅ [{completed}/{total}] Completed chromosome {chrom_res}")
+                        safe_print(f"           ✅ [{completed}/{total}] Completed chromosome {chrom_res}")
                 except Exception as exc:
                     msg = f"❌ [ERROR] Chromosome {chrom} crashed: {exc}"
                     safe_print(msg)
@@ -639,11 +642,11 @@ def gwas_to_vcf_parallel(
 
     finally:
         if errors_seen:
-            safe_print("\n⚠️ Some chromosomes finished with errors:")
+            safe_print("\n          ⚠️ Some chromosomes finished with errors:")
             for e in errors_seen:
                 safe_print("   -", e)
         else:
-            safe_print("\n🎉 All chromosomes completed without reported errors.")
+            safe_print("\n      🎉All chromosomes completed without reported errors.")
 
     return per_chr_qc
 
@@ -663,7 +666,7 @@ def _save_qc_results(qc_results: Dict[str, Any], out_file: Path) -> None:
     try:
         with out_file.open("w", encoding="utf-8") as f:
             json.dump(qc_results, f, indent=4)
-        safe_print(f"✅ QC results saved to JSON: {out_file}")
+        #safe_print(f"✅ QC results saved to JSON: {out_file}")
         return
     except TypeError:
         # JSON failed (object not serializable)
@@ -672,7 +675,7 @@ def _save_qc_results(qc_results: Dict[str, Any], out_file: Path) -> None:
     # Fallback: save as plain text
     with out_file.open("w", encoding="utf-8") as f:
         f.write(str(qc_results))
-    safe_print(f"✅ QC results saved as plain text: {out_file}")
+    #safe_print(f"✅ QC results saved as plain text: {out_file}")
 
 
 def run_harmonisation_pipeline(
@@ -834,7 +837,7 @@ def run_harmonisation_pipeline(
     # ---------------------------------------------------------
     # STEP 2 — Merge per-chromosome VCFs
     # ---------------------------------------------------------
-    safe_print("\n📦 Concatenating per-chromosome VCFs...")
+    #safe_print("\n📦 Concatenating per-chromosome VCFs...")
     concat_vcfs_by_build(
         output_dir=sample_column_dict["output_folder"],
         gwas_outputname=sample_column_dict["gwas_outputname"],
@@ -844,7 +847,7 @@ def run_harmonisation_pipeline(
     # ---------------------------------------------------------
     # STEP 3 — Cleanup temporary files
     # ---------------------------------------------------------
-    safe_print("🧹 Cleaning intermediate files...")
+    #safe_print("🧹 Cleaning intermediate files...")
     clean_intermediate_files(
         output_dir=sample_column_dict["output_folder"],
         gwas_outputname=sample_column_dict["gwas_outputname"],
@@ -859,7 +862,7 @@ def run_harmonisation_pipeline(
         outdir
         / f"{sample_column_dict['gwas_outputname']}_GRCh37_merged.vcf.gz"
     )
-    safe_print(f"\n📊 Running QC summary on raw VCF: {raw_vcf_path}")
+    #safe_print(f"\n📊 Running QC summary on raw VCF: {raw_vcf_path}")
 
     raw_vcf_qc_df = run_qc_summary(
         vcf_path=raw_vcf_path,
@@ -875,7 +878,7 @@ def run_harmonisation_pipeline(
     # ---------------------------------------------------------
     # STEP 5 — Filtering VCF
     # ---------------------------------------------------------
-    safe_print("🧪 Filtering VCF based on INFO / AF / MHC settings...")
+    #safe_print("🧪 Filtering VCF based on INFO / AF / MHC settings...")
 
     qc_passed_vcf = filter_gwas_vcf_bcftools(
         vcf_path=raw_vcf_path,
@@ -897,7 +900,7 @@ def run_harmonisation_pipeline(
         threads=nthreads,
         max_mem="12G",
     )
-    safe_print(f"✅ Filtered VCF written to: {qc_passed_vcf}")
+    #safe_print(f"✅ Filtered VCF written to: {qc_passed_vcf}")
 
     filtered_vcf_path = qc_passed_vcf['filtered_vcf']
 
@@ -959,7 +962,7 @@ def run_harmonisation_pipeline(
     # ---------------------------------------------------------
     # STEP 7 — Cleanup VCF QC intermediates
     # ---------------------------------------------------------
-    safe_print("🧹 Cleaning QC intermediate files...")
+    #safe_print("🧹 Cleaning QC intermediate files...")
     os.system(
         f"rm -f {outdir}/{sample_column_dict['gwas_outputname']}_GRCh37_filtered*"
     )
@@ -979,8 +982,8 @@ def run_harmonisation_pipeline(
     # Combine logs into a single summary log
     combine_logs_per_chromosome(f"{outdir}/logs/")
 
-    safe_print("\n🎉 Harmonisation + GWAS2VCF pipeline completed successfully.\n")
-    
+    safe_print("\n      🎉 Harmonisation + GWAS2VCF pipeline completed successfully.\n")
+    safe_print(" ")
     return {
         "GRCh37":f"{outdir}/{sample_column_dict['gwas_outputname']}_GRCh37_merged.vcf.gz",
         "GRCh38":f"{outdir}/{sample_column_dict['gwas_outputname']}_GRCh37_merged.vcf.gz"

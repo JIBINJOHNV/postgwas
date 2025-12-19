@@ -254,8 +254,6 @@ def run_finemap_runner(args, ctx):
     args.locus_file = ctx["ld_clump"]["ldpruned_sig_file"]
     try:
         outputs = run_susie_direct(args)
-        print("finemap returned:")
-        print(outputs)
         # FIX: Save entire output dict
         ctx["finemap"] = outputs
     finally:

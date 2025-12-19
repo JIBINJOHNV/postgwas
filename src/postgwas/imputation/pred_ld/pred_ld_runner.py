@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ProcessPoolExecutor
 import functools
 import os, re,subprocess,time,shutil
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor,ProcessPoolExecutor, as_completed
 import pandas as pd
 import numpy as np
 import polars as pl
@@ -16,6 +15,7 @@ from typing import List, Optional, Tuple
 import threading
 import psutil
 
+    
 """
 pred_ld_runner.py — multiprocessing-safe PRED-LD engine for PostGWAS
 
@@ -32,11 +32,6 @@ Features:
 ✓ Merges logs and validates outputs
 ✓ Auto thread reduction using safe_thread_count()
 """
-
-# ==============================================================================
-# 1. TOP-LEVEL WORKER FUNCTION
-#    (Required for macOS + multiprocessing)
-# ==============================================================================
 
 # =====================================================================
 # 1. PRED-LD PARALLEL RUNNER
@@ -276,9 +271,10 @@ def run_pred_ld_parallel(
                         running_big = True
                     
                     if ram_known:
-                        write_log(log_file, f"🚀 Starting chr{chr_id}: free RAM {free_gb:.1f} GB (threshold {threshold:.1f} GB)")
+                        write_log(log_file, f"🚀 Started chr{chr_id}: free RAM {free_gb:.1f} GB (threshold {threshold:.1f} GB)")
                     else:
-                        write_log(log_file, f"🚀 Starting chr{chr_id}: RAM unknown.")
+                        write_log(log_file, f"🚀 Started chr{chr_id}: RAM unknown.")
+                    print(f"    🚀 Started imputation for chr{chr_id} using PRED-LD")
                     return
 
                 if ram_known and not free_ok:
@@ -335,7 +331,7 @@ def run_pred_ld_parallel(
                 log_f.write("\n--- SUBPROCESS OUTPUT END ---\n")
 
             if proc.returncode != 0:
-                reason = f"PRED-LD failed for chr{chr_id} (exit={proc.returncode}). See log: {log_file}"
+                reason = f"     PRED-LD failed for chr{chr_id} (exit={proc.returncode}).        See log: {log_file}"
                 write_log(log_file, f"❌ {reason}")
                 # REMOVED: print(f"❌ {reason}")
                 failed.append((chr_id, reason))
@@ -421,10 +417,12 @@ def run_pred_ld_parallel(
             write_log(master_log_file, f"   chr{chr_id}: {reason}")
         
         # Print CONCISE summary to screen
-        print(f"\n❌ PRED-LD Failed for chromosomes: {', '.join(failed_ids)}")
-        print(f"   See detailed logs in: {merged_log}\n")
+        print(f"\n      ❌ PRED-LD Failed for chromosomes: {', '.join(failed_ids)}")
+        print(f"        See detailed logs in: {merged_log}\n")
     else:
-        print("\n✅ PRED-LD DIRECT run finished.")
+        print("\n       ✅Summary stiatistics Imputation using PRED-LD software finished.")
+        print(" ")
+        print(" ")
 
     return bool(succeeded)
 
@@ -447,15 +445,6 @@ def process_pred_ld_results_all_parallel(
     - gwas2vcf config generation
     - Cleanup of intermediate files
     """
-
-    import os, re, subprocess
-    import polars as pl
-    import numpy as np
-    from pathlib import Path
-    from scipy.stats import norm
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import pandas as pd
-
     # =====================================================================
     # Safe helpers
     # =====================================================================
@@ -763,5 +752,6 @@ def process_pred_ld_results_all_parallel(
         shell=True, check=False,)
     subprocess.run(f"rm -f {folder_path}/imputation_results_chr*.txt", shell=True, check=False)
     subprocess.run(f"rm -f {folder_path}/LD_info_TOP_LD_chr*.txt", shell=True, check=False)
+    subprocess.run(f"rm -f {output_folder}/{output_prefix}_chr*_predld.log", shell=True, check=False)
 
     return combined_df, corr_df,config_path

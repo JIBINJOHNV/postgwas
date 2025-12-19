@@ -708,7 +708,7 @@ def pops_main(config_dict):
     # Configure logging system
     logging.basicConfig(
         level=logging.DEBUG if config_dict["verbose"] else logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
+        format="        %(asctime)s - %(levelname)s - %(message)s",
         handlers=handlers
     )
 

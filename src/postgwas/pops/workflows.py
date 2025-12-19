@@ -14,7 +14,6 @@ def run_pops_direct(args: argparse.Namespace, ctx=None):
     Run PoPS directly using provided arguments.
     This bypasses the full PostGWAS pipeline and runs PoPS only.
     """
-    print("\n📌 PoPS — Direct Mode")
     # --------------------------------------------
     # Create output folder
     # --------------------------------------------
@@ -138,7 +137,8 @@ def run_pops_direct(args: argparse.Namespace, ctx=None):
     except SystemExit as e:
         raise RuntimeError("PoPS exited prematurely") from e
 
-    print("\n🎉 PoPS Direct Mode Completed Successfully!")
+    print("\n       🎉 PoPS Direct Mode Completed Successfully!")
+    print()
 
     pops_out_file = f"{pops_out_prefix}.preds"
 
@@ -148,6 +148,5 @@ def run_pops_direct(args: argparse.Namespace, ctx=None):
         "output_dir": str(pops_folder),
         "out_prefix": str(pops_out_prefix),
     }
-    print("DEBUG PoPS return:", result)
     ctx["pops_output"] = pops_out_file
     return result

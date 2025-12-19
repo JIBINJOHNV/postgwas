@@ -99,6 +99,7 @@ def run_magma_analysis(
     # Step 1 — Annotation
     # ---------------------------------------------------------
     logger.info("🔹 [Step 1/4] Running MAGMA annotation...")
+    print("     🔹 [Step 1/4] Running MAGMA annotation...")
     annotate_cmd = [
         magma,
         "--annotate",
@@ -114,6 +115,7 @@ def run_magma_analysis(
     # Step 2 — Gene analysis (batched)
     # ---------------------------------------------------------
     logger.info(f"🔹 [Step 2/4] Running MAGMA gene analysis ({num_batches} batches)...")
+    print(f"     🔹 [Step 2/4] Running MAGMA gene analysis ({num_batches} batches)...")
     def run_batch(i: int):
         batch_cmd = [
             magma,
@@ -133,6 +135,7 @@ def run_magma_analysis(
     # Step 3 — Merge MAGMA batches
     # ---------------------------------------------------------
     logger.info("🔹 [Step 3/4] Merging MAGMA batch results...")
+    print("     🔹 [Step 3/4] Merging MAGMA batch results...")
     merge_cmd = [
         magma,
         "--merge", str(gene_annot_out),
@@ -151,6 +154,7 @@ def run_magma_analysis(
     # ---------------------------------------------------------
     if geneset_file and Path(geneset_file).exists():
         logger.info("🔹 [Step 4/4] Running MAGMA gene-set analysis...")
+        print("     🔹 [Step 4/4] Running MAGMA gene-set analysis...")
         geneset_cmd = [
             magma,
             "--gene-results", str(merged_raw),
@@ -364,7 +368,6 @@ def magma_analysis_pipeline(
     # ---------------------------------------------------------
     # Step 1 — Run MAGMA core analysis
     # ---------------------------------------------------------
-    print("🔹 Running MAGMA core analysis...")
     magma_gene_file=run_magma_analysis(
         magma_analysis_folder=output_dir,
         sample_id=sample_id,
@@ -409,7 +412,7 @@ def magma_analysis_pipeline(
             "magma_genes_out": f"{magma_gene_file['merged_prefix']}.genes.out",
         }
     else:
-        print("Pathway analysis not performed because the gene set file was not provided or does not exist.")
+        print("     ❌ Pathway analysis not performed because the gene set file was not provided or does not exist.")
         return {
             "magma_genes_raw": f"{magma_gene_file['merged_prefix']}.genes.raw",
             "magma_genes_out": f"{magma_gene_file['merged_prefix']}.genes.out",

@@ -7,12 +7,14 @@ import argparse
 import pandas as pd
 
 def splash_screen():
-    print('\n*********************************************************************')
-    print('*Fine-mapped Locus Assesment Model of Effector geneS (FLAMES)')
-    print('* Version 1.1.2')
-    print('* (C) 2023 Marijn Schipper')
-    print('*********************************************************************')
-    print()
+    # \n ensures a blank line first
+    # \t\t adds two tabs of indentation before the text
+    print('\n\t\t*********************************************************************')
+    print('\t\t* Fine-mapped Locus Assesment Model of Effector geneS (FLAMES)')
+    print('\t\t* Version 1.1.2')
+    print('\t\t* (C) 2023 Marijn Schipper')
+    print('\t\t*********************************************************************')
+    print() # Prints a final empty line
 
 
 def functional_annotation(args):
