@@ -29,7 +29,7 @@ def run_magma_covar_direct(args: argparse.Namespace, ctx=None):
     """
     Run ONLY the MAGMA covariate (gene-property) analysis step.
     """
-    print("\n       === Running MAGMA Covariate Analysis (Direct Mode) ===")
+    print("\n           === Running MAGMA Covariate Analysis ===")
     
     # ---------------------------------------------------------
     # SMART MAGMA DETECTION
@@ -63,7 +63,6 @@ def run_magma_covar_direct(args: argparse.Namespace, ctx=None):
     # Update args with the confirmed valid path
     args.magma = final_magma_path
     
-    print("     ⚠ run_magma_covariate analysis started")
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -72,8 +71,8 @@ def run_magma_covar_direct(args: argparse.Namespace, ctx=None):
     output_prefix = str(outdir / args.sample_id)
 
     if args.covar_model:
-        print("     ⚠ WARNING: Using a custom covariate model (--covar_model).")
-        print("     Ensure this matches your scientific intent.\n")
+        print("         ⚠ WARNING: Using a custom covariate model (--covar_model).")
+        print("         Ensure this matches your scientific intent.\n")
 
     # ---------------------------------------------------------
     # Call MAGMA covariates engine
@@ -90,7 +89,7 @@ def run_magma_covar_direct(args: argparse.Namespace, ctx=None):
     
     output_file = f'{output_prefix}.gsa.out'
     
-    print("\n   🎉 MAGMA Covariate Analysis Completed.")
+    print("           🎉 MAGMA Covariate Analysis Completed.")
     print(" ")
     
     if ctx is not None:

@@ -42,7 +42,7 @@ def run_flames(
         --SNP_col "{snp_col}"
     """
 
-    print("     🔥 Running FLAMES annotation…")
+    print("             🔥 Running FLAMES annotation…")
     subprocess.run(cmd_annot, shell=True, check=True)
 
     # -----------------------------
@@ -57,11 +57,11 @@ def run_flames(
         --weight {weight} \
         --modelpath "{modelpath if modelpath else Path(__file__).parent / 'model'}"
     """
-
-    print("     🔥 Running FLAMES scoring…")
+    print("                 FLAMES annotation… completed")
+    print("             🔥 Running FLAMES scoring…")
     subprocess.run(cmd_score, shell=True, check=True)
 
-    print("     🎉 FLAMES annotation + scoring completed.")
+    print("             🎉 FLAMES annotation + scoring completed.")
 
 
 if __name__ == "__main__":

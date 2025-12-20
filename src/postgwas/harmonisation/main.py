@@ -76,6 +76,7 @@ from postgwas.harmonisation.utilities import combine_logs_per_chromosome
 
 from postgwas.sumstat_filter.sumstat_filter import filter_gwas_vcf_bcftools
 from postgwas.qc_summary.main import run_qc_summary
+from postgwas.harmonisation.print_qc_summary import print_qc_summary
 
 
 # ===============================================================
@@ -503,7 +504,9 @@ def gwas_to_vcf_parallel(
     for Linux/Docker (Python 3.8) using spawn-safe ProcessPoolExecutor and
     better logging/progress reporting.
     """
-    safe_print(f"   🔹 Starting GWAS-to-VCF harmonisation pipeline with max_workers={max_workers}")
+    safe_print(f"          🔹 Starting harmonisation + GWAS-to-VCF pipeline with max_workers={max_workers} ")
+    safe_print(f"                   for {sumstat_file}")
+
     # ------------------------------
     # Create output path
     # ------------------------------
@@ -522,8 +525,8 @@ def gwas_to_vcf_parallel(
     #     f"\n📥 Reading sumstats: {sumstat_file}\n"
     #     f"   Polars rows: {polars_rows:,} | Shell-count variants: {file_cvariant_count:,}"
     # )
-    safe_print(f"   Total variants in input file        : {file_cvariant_count:,}")
-    safe_print(f"   Total variants read by the python   : {polars_rows:,}")
+    safe_print(f"           Total variants in input file        : {file_cvariant_count:,}")
+    safe_print(f"           Total variants read by the python   : {polars_rows:,}")
 
     validate_gwas_config(sample_column_dict, df)
 
@@ -537,8 +540,17 @@ def gwas_to_vcf_parallel(
         sample_column_dict,
     )
     grch_version = genome_build_info["inferred_build"]
-    safe_print(f"   🧬 Inferred genome build: {grch_version}")
+    safe_print(f"           🧬 Inferred genome build: {grch_version}")
+    safe_print(f"               {genome_build_info}")
+    safe_print(" ")
 
+    if grch_version == "Ambiguous":
+        raise RuntimeError(
+            "❌ Genome build inference failed (Ambiguous).\n"
+            "   Please specify the genome build explicitly using:\n"
+            "     --genome-build GRCh37  or  --genome-build GRCh38\n"
+            "   Aborting pipeline to avoid invalid gwas2vcf resource usage."
+        )
     # ------------------------------
     # Split by chromosome
     # ------------------------------
@@ -633,7 +645,7 @@ def gwas_to_vcf_parallel(
                         safe_print(f"{msg} See logs/{sample_column_dict['gwas_outputname']}_chr{chrom_res}.log")
                         errors_seen.append(msg + " " + qc.get("error", ""))
                     else:
-                        safe_print(f"           ✅ [{completed}/{total}] Completed chromosome {chrom_res}")
+                        safe_print(f"               ✅ [{completed}/{total}] Completed chromosome {chrom_res}")
                 except Exception as exc:
                     msg = f"❌ [ERROR] Chromosome {chrom} crashed: {exc}"
                     safe_print(msg)
@@ -646,7 +658,7 @@ def gwas_to_vcf_parallel(
             for e in errors_seen:
                 safe_print("   -", e)
         else:
-            safe_print("\n      🎉All chromosomes completed without reported errors.")
+            safe_print("\n          🎉All chromosomes completed without reported errors.")
 
     return per_chr_qc
 
@@ -713,15 +725,18 @@ def run_harmonisation_pipeline(
     dbsnp = default_cfg_obj["default_dbsnp"]
     required_cols = default_cfg_obj["required_columns_in_sumstat"]
     optional_cols = default_cfg_obj["optional_columns_in_sumstat"]
-    gwastovcf_script = default_cfg_obj["gwastovcf_main_script_path"]
+    #gwastovcf_script = default_cfg_obj["gwastovcf_main_script_path"]
     maf_eaf_decision_cutoff =default_cfg_obj['maf_eaf_decision_cutoff']
     extrnal_eaf_colmap=default_cfg_obj["extrnal_eaf_colmap"]
     # Build clean path using pathlib
     output_folder = Path(sample_column_dict["output_folder"])
+    gwastovcf_script = str(Path(__file__).parent / "gwas2vcf" / "main.py")
 
 
-    # Save normalized string version back to dict
+    # Save normalized output_folder  back to dict
+    output_folder = output_folder / "00_harmonised_sumstat"
     sample_column_dict["output_folder"] = str(output_folder)
+
 
     # Try to create it safely
     try:
@@ -883,14 +898,14 @@ def run_harmonisation_pipeline(
     qc_passed_vcf = filter_gwas_vcf_bcftools(
         vcf_path=raw_vcf_path,
         output_folder=str(outdir),
-        output_prefix=f"{sample_column_dict['gwas_outputname']}_GRCh37_raw",
+        output_prefix=f"{sample_column_dict['gwas_outputname']}",
         pval_cutoff=None,
-        maf_cutoff=None,
+        maf_cutoff=0.01,
         allelefreq_diff_cutoff=0.2,
         info_cutoff=0.7,
         external_af_name=comparison_cols,
         include_indels=True,
-        include_palindromic=True,
+        exclude_palindromic=True,
         palindromic_af_lower=0.4,
         palindromic_af_upper=0.6,
         remove_mhc=False,
@@ -982,8 +997,11 @@ def run_harmonisation_pipeline(
     # Combine logs into a single summary log
     combine_logs_per_chromosome(f"{outdir}/logs/")
 
-    safe_print("\n      🎉 Harmonisation + GWAS2VCF pipeline completed successfully.\n")
-    safe_print(" ")
+    print_qc_summary(raw_vcf_qc_df, columns="raw_variant_count")
+    print_qc_summary(qc_passed_vcf_df, columns="qc_passed_variant_count")
+
+    safe_print("\n          🎉 Harmonisation + GWAS2VCF pipeline completed successfully.\n")
+    print(" ")
     return {
         "GRCh37":f"{outdir}/{sample_column_dict['gwas_outputname']}_GRCh37_merged.vcf.gz",
         "GRCh38":f"{outdir}/{sample_column_dict['gwas_outputname']}_GRCh37_merged.vcf.gz"

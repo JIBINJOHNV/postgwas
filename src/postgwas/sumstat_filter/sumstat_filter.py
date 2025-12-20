@@ -17,7 +17,7 @@ def filter_gwas_vcf_bcftools(
     info_cutoff: Optional[float] = None,
     external_af_name: str = "EUR",
     include_indels: bool = True,
-    include_palindromic: bool = True,
+    exclude_palindromic: bool = False,
     palindromic_af_lower: float = 0.4,
     palindromic_af_upper: float = 0.6,
     remove_mhc: bool = False,
@@ -112,7 +112,7 @@ def filter_gwas_vcf_bcftools(
     )
 
     exclude_expr = None
-    if not include_palindromic:
+    if exclude_palindromic:
         exclude_expr = (
             f"({palindromic_logic} & "
             f"(FORMAT/AF >= {palindromic_af_lower} & FORMAT/AF <= {palindromic_af_upper}))"
@@ -185,15 +185,72 @@ def filter_gwas_vcf_bcftools(
     except Exception:
         post_variants = None
 
+    log_print("📊 Variants filtering command used:")
+    log_print(post_cmd)
     log_print(f"✅ Variants AFTER filtering: {post_variants}")
     log_print(f"💾 Filtered VCF saved to: {output_vcf}")
     log_print("\n🎉 bcftools filtering completed.")
-
     # ============================================================
     # Write log file
     # ============================================================
     with open(log_file, "w") as f:
         f.write(log_buffer.getvalue())
+
+    print("\t\t🧪 Variant filtering summary:")
+    # ----------------------------
+    # Inclusion (retention)
+    # ----------------------------
+    print("\t\t\t🔹 Variants are RETAINED if they pass the following active filters:")
+    if pval_cutoff is not None:
+        print(f"\t\t\t   • P-value evidence: LP ≥ {pval_cutoff}")
+    if maf_cutoff is not None:
+        print(f"\t\t\t   • Minor allele frequency range: {maf_cutoff} ≤ AF ≤ {1 - maf_cutoff}")
+
+    if info_cutoff is not None:
+        print(f"\t\t\t   • Imputation quality: INFO (SI) ≥ {info_cutoff}")
+
+    if allelefreq_diff_cutoff is not None:
+        print(
+            f"\t\t\t   • External AF concordance: "
+            f"|AF − {external_af_name}| ≤ {allelefreq_diff_cutoff}"
+        )
+
+    print(
+        f"\t\t\t   • Allowed variant types: "
+        f"{'SNPs and indels' if include_indels else 'SNPs only'}"
+    )
+
+    # ----------------------------
+    # Exclusions
+    # ----------------------------
+    print("\n\t\t\t🔻 Variants are REMOVED if they meet any of the following conditions:")
+
+    if exclude_palindromic:
+        print(
+            f"\t\t\t   • Palindromic SNPs with ambiguous frequency "
+            f"({palindromic_af_lower} ≤ AF ≤ {palindromic_af_upper})"
+        )
+    else:
+        print("\t\t\t   • Palindromic SNPs: NOT removed")
+
+    if remove_mhc:
+        print(
+            f"\t\t\t   • Located in MHC region "
+            f"(chr{mhc_chrom}:{mhc_start:,}-{mhc_end:,})"
+        )
+    else:
+        print("\t\t\t   • MHC region variants: NOT removed")
+
+    # ----------------------------
+    # Counts
+    # ----------------------------
+    print(f"\n\t\t\t📊 Variants BEFORE filtering : {pre_variants:,}")
+    print(f"\t\t\t✅ Variants AFTER filtering  : {post_variants:,}")
+
+    if pre_variants is not None and post_variants is not None:
+        print(f"\t\t\t🧮 Variants REMOVED          : {pre_variants - post_variants:,}")
+    
+    print("")
 
     return {
         "filtered_vcf": output_vcf

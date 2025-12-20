@@ -6,6 +6,13 @@ import sys
 import argparse
 import pandas as pd
 
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message=".*loading a serialized model.*",
+    category=UserWarning,
+)
+
 def splash_screen():
     # \n ensures a blank line first
     # \t\t adds two tabs of indentation before the text

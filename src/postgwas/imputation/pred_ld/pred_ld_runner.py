@@ -12,9 +12,8 @@ import polars as pl
 from scipy.stats import norm
 from postgwas.utils.main import safe_thread_count 
 from typing import List, Optional, Tuple
-import threading
-import psutil
-
+import threading,psutil,sys
+from datetime import datetime
     
 """
 pred_ld_runner.py — multiprocessing-safe PRED-LD engine for PostGWAS
@@ -151,16 +150,7 @@ def build_interleaved_chr_order(chromosomes: List) -> List[str]:
 
 # =============================================================================
 #  MAIN PRED-LD PARALLEL RUNNER
-# =============================================================================
-import sys
-import shutil
-import time
-import threading
-import subprocess
-from pathlib import Path
-from datetime import datetime
-from typing import List, Tuple
-
+# ============================================================================
 def run_pred_ld_parallel(
     predld_input_dir: str,
     output_folder: str,
@@ -228,7 +218,7 @@ def run_pred_ld_parallel(
     # -------------------------------------------------------------------------
     # 3. Threads / workers & chromosome order
     # -------------------------------------------------------------------------
-    threads = safe_thread_count(threads, gb_per_thread=30)
+    threads = safe_thread_count(threads, gb_per_thread=20)
     max_workers = min(2, max(1, threads))
     chr_order = build_interleaved_chr_order(chromosomes)
 
@@ -274,7 +264,7 @@ def run_pred_ld_parallel(
                         write_log(log_file, f"🚀 Started chr{chr_id}: free RAM {free_gb:.1f} GB (threshold {threshold:.1f} GB)")
                     else:
                         write_log(log_file, f"🚀 Started chr{chr_id}: RAM unknown.")
-                    print(f"    🚀 Started imputation for chr{chr_id} using PRED-LD")
+                    print(f"            🚀 Started imputation for chr{chr_id} using PRED-LD")
                     return
 
                 if ram_known and not free_ok:
@@ -417,10 +407,10 @@ def run_pred_ld_parallel(
             write_log(master_log_file, f"   chr{chr_id}: {reason}")
         
         # Print CONCISE summary to screen
-        print(f"\n      ❌ PRED-LD Failed for chromosomes: {', '.join(failed_ids)}")
-        print(f"        See detailed logs in: {merged_log}\n")
+        print(f"\n          ❌ PRED-LD Failed for chromosomes: {', '.join(failed_ids)}")
+        print(f"            See detailed logs in: {merged_log}\n")
     else:
-        print("\n       ✅Summary stiatistics Imputation using PRED-LD software finished.")
+        print("\n           ✅Summary stiatistics Imputation using PRED-LD software finished.")
         print(" ")
         print(" ")
 
@@ -523,7 +513,7 @@ def process_pred_ld_results_all_parallel(
             info_file = folder_path / f"LD_info_TOP_LD_chr{chr_id}.txt"
 
             if not imp_file.exists() or not info_file.exists():
-                print(f"⚠️ chr{chr_id}: missing files, skipping.")
+                print(f"            ⚠️ chr{chr_id}: missing files, skipping.")
                 return None, None
 
             # -------- Load files --------
@@ -548,16 +538,31 @@ def process_pred_ld_results_all_parallel(
             nonimp_dups = safe_drop(nonimp_dups, ["NC", "SS", "AF", "LP", "SI"])
 
             beta_corr = z_corr = np.nan
-            if imputed_dups.height > 0 and nonimp_dups.height > 0:
+            dup_beta = (
+                imputed_dups
+                .select(["snp", "beta", "z"])
+                .rename({"beta": "beta_imp", "z": "z_imp"})
+                .join(
+                    nonimp_dups
+                    .select(["snp", "beta", "z"])
+                    .rename({"beta": "beta_nonimp", "z": "z_nonimp"}),
+                    on="snp",
+                    how="inner"
+                )
+            )
+
+            if dup_beta.height >= 2:
                 beta_corr = np.corrcoef(
-                    imputed_dups["beta"].to_numpy(),
-                    nonimp_dups["beta"].to_numpy()
-                )[0, 1]
-                z_corr = np.corrcoef(
-                    imputed_dups["z"].to_numpy(),
-                    nonimp_dups["z"].to_numpy()
+                    dup_beta["beta_imp"].to_numpy(),
+                    dup_beta["beta_nonimp"].to_numpy()
                 )[0, 1]
 
+                z_corr = np.corrcoef(
+                    dup_beta["z_imp"].to_numpy(),
+                    dup_beta["z_nonimp"].to_numpy()
+                )[0, 1]
+            else:
+                beta_corr = z_corr = np.nan
             # -------------------------------------------------------------
             # NON-IMPUTED summary statistics
             # -------------------------------------------------------------
@@ -652,7 +657,7 @@ def process_pred_ld_results_all_parallel(
             return final_df, summary
 
         except Exception as e:
-            print(f"❌ Error processing chr{chr_id}: {e}")
+            print(f"            ❌ Error processing chr{chr_id}: {e}")
             return None, None
 
     # =====================================================================
@@ -744,14 +749,21 @@ def process_pred_ld_results_all_parallel(
     # Cleanup original files
     # =====================================================================
     subprocess.run(
-        f"cat {folder_path}/imputation_results_chr*.txt | gzip -c > {output_folder}/{output_prefix}_imputation_results.txt.gz",
-        shell=True,check=False,)
+        f"(pigz -p {threads} -c {folder_path}/imputation_results_chr*.txt 2>/dev/null "
+        f"|| gzip -1 -c {folder_path}/imputation_results_chr*.txt) "
+        f"> {output_folder}/{output_prefix}_imputation_results.txt.gz",
+        shell=True,
+        check=False,
+    )
 
     subprocess.run(
-        f"cat {folder_path}/LD_info_TOP_LD_chr*.txt | gzip -c > {output_folder}/{output_prefix}_LD_info_TOP_LD.txt.gz",
-        shell=True, check=False,)
+        f"(pigz -p {threads} -c {folder_path}/LD_info_TOP_LD_chr*.txt 2>/dev/null "
+        f"|| gzip -1 -c {folder_path}/LD_info_TOP_LD_chr*.txt) "
+        f"> {output_folder}/{output_prefix}_LD_info_TOP_LD.txt.gz",
+        shell=True,
+        check=False,
+    )
     subprocess.run(f"rm -f {folder_path}/imputation_results_chr*.txt", shell=True, check=False)
     subprocess.run(f"rm -f {folder_path}/LD_info_TOP_LD_chr*.txt", shell=True, check=False)
     subprocess.run(f"rm -f {output_folder}/{output_prefix}_chr*_predld.log", shell=True, check=False)
-
     return combined_df, corr_df,config_path

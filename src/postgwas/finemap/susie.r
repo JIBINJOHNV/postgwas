@@ -11,6 +11,8 @@ suppressPackageStartupMessages({
   library(ggrepel)
   library(parallel)
   library(purrr)
+  library(progressr)
+
 })
 
 ## ── 0. Locate and source utilities from same folder ──────────────
@@ -315,36 +317,82 @@ run_susie_finemap_parallel <- function(
 
     old_plan <- future::plan()
     on.exit(future::plan(old_plan), add = TRUE)
-    future::plan(future::multisession, workers = workers, gc = TRUE)  # works everywhere
+    future::plan(future::multisession, workers = workers, gc = TRUE)
 
-    message("Starting PASS 1 with ", workers, " workers on ", nrow(locus_df), " loci")
+    # --------------------------------------------------------------
+    # Progress handlers (ESSENTIAL ADDITION)
+    # --------------------------------------------------------------
+    progressr::handlers(global = TRUE)
+    progressr::handlers("txtprogressbar")
 
-    pass1 <- future.apply::future_lapply(seq_len(nrow(locus_df)), function(i) {
-      source(UTILITIES_R, local = TRUE)  # THIS IS CRITICAL
-      process_locus(
-        locus = locus_df[i, ], df = df, sample_id = sample_id, ld_ref = ld_ref, plink = plink,
-        analysis_folder = SUSIE_Analysis_folder, lp_threshold = lp_threshold, L = L,
-        timeout_ld = timeout_ld_seconds, timeout_susie = timeout_susie_seconds,
-        skip_mhc = skip_mhc, mhc_start = mhc_start, mhc_end = mhc_end, verbose = verbose
+    message("\t\t\tStarting PASS 1 with ", workers, " workers on ", nrow(locus_df), " loci")
+
+    # --------------------------------------------------------------
+    # PASS 1 with progress
+    # --------------------------------------------------------------
+    pass1 <- progressr::with_progress({
+      p <- progressr::progressor(along = seq_len(nrow(locus_df)))
+
+      future.apply::future_lapply(
+        seq_len(nrow(locus_df)),
+        function(i) {
+          p(sprintf("\t\t\tProcessing locus %d / %d", i, nrow(locus_df)))
+
+          source(UTILITIES_R, local = TRUE)  # THIS IS CRITICAL
+          process_locus(
+            locus = locus_df[i, ], df = df, sample_id = sample_id,
+            ld_ref = ld_ref, plink = plink,
+            analysis_folder = SUSIE_Analysis_folder,
+            lp_threshold = lp_threshold, L = L,
+            timeout_ld = timeout_ld_seconds,
+            timeout_susie = timeout_susie_seconds,
+            skip_mhc = skip_mhc,
+            mhc_start = mhc_start,
+            mhc_end = mhc_end,
+            verbose = verbose
+          )
+        },
+        future.globals = TRUE,
+        future.packages = c("data.table","glue","susieR","Matrix","R.utils"),
+        future.seed = TRUE
       )
-    }, 
-      future.globals = TRUE,
-      future.packages = c("data.table","glue","susieR","Matrix","R.utils"),
-      future.seed = TRUE)
+    })
 
     rec_jobs <- purrr::keep(pass1, ~ .x$status == "RECOVERY")
-    message(length(rec_jobs), " loci need recovery")
+    message("\t\t\t", length(rec_jobs), " loci need recovery")
 
+    # --------------------------------------------------------------
+    # RECOVERY PASS with progress (if needed)
+    # --------------------------------------------------------------
     rec_results <- list()
     if (length(rec_jobs)) {
       future::plan(future::multisession, workers = max(1L, workers %/% 2), gc = TRUE)
-      rec_results <- future.apply::future_lapply(rec_jobs, function(job) {
-        source(UTILITIES_R, local = TRUE)
-        recover_locus(job, sample_id, SUSIE_Analysis_folder, L, timeout_ld_seconds, timeout_susie_seconds, verbose)
-      }, future.seed = TRUE)
+
+      message("\t\t\tStarting RECOVERY PASS")
+
+      rec_results <- progressr::with_progress({
+        p <- progressr::progressor(along = rec_jobs)
+
+        future.apply::future_lapply(
+          rec_jobs,
+          function(job) {
+            p("\t\t\tRecovering locus")
+
+            source(UTILITIES_R, local = TRUE)
+            recover_locus(
+              job, sample_id, SUSIE_Analysis_folder,
+              L, timeout_ld_seconds, timeout_susie_seconds, verbose
+            )
+          },
+          future.seed = TRUE
+        )
+      })
     }
 
-    credible_set_df <- aggregate_and_write_results(c(pass1, rec_results), sample_id, SUSIE_Analysis_folder, verbose)
-    message("SuSiE fine-mapping finished for ", sample_id)
+    credible_set_df <- aggregate_and_write_results(
+      c(pass1, rec_results), sample_id, SUSIE_Analysis_folder, verbose
+    )
+
+    message("\t\t\tSuSiE fine-mapping finished for ", sample_id)
     invisible(TRUE)
 }

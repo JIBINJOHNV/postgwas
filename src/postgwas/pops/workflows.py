@@ -137,7 +137,7 @@ def run_pops_direct(args: argparse.Namespace, ctx=None):
     except SystemExit as e:
         raise RuntimeError("PoPS exited prematurely") from e
 
-    print("\n       🎉 PoPS Direct Mode Completed Successfully!")
+    print("\n           🎉 PoPS Direct Mode Completed Successfully!")
     print()
 
     pops_out_file = f"{pops_out_prefix}.preds"

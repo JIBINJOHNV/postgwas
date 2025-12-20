@@ -1,4 +1,4 @@
-import subprocess
+import subprocess,os
 import logging
 from pathlib import Path
 import numpy as np
@@ -99,7 +99,7 @@ def run_magma_analysis(
     # Step 1 — Annotation
     # ---------------------------------------------------------
     logger.info("🔹 [Step 1/4] Running MAGMA annotation...")
-    print("     🔹 [Step 1/4] Running MAGMA annotation...")
+    print("                 🔹 [Step 1/4] Running MAGMA annotation...")
     annotate_cmd = [
         magma,
         "--annotate",
@@ -110,51 +110,92 @@ def run_magma_analysis(
     ]
     run_subprocess_with_logging(annotate_cmd, logger)
     
-    num_batches=decide_magma_batches_from_annot(annot_file=f"{gene_annot_out}.genes.annot")
+    annot_path = f"{gene_annot_out}.genes.annot"
+
+    with open(annot_path, "r") as f:
+        n_lines = sum(1 for _ in f)
+
+    if n_lines > 1000:
+        num_batches = decide_magma_batches_from_annot(annot_file=annot_path)
+    else:
+        num_batches = 1
+
     # ---------------------------------------------------------
-    # Step 2 — Gene analysis (batched)
+    # Step 2 — Gene analysis
     # ---------------------------------------------------------
-    logger.info(f"🔹 [Step 2/4] Running MAGMA gene analysis ({num_batches} batches)...")
-    print(f"     🔹 [Step 2/4] Running MAGMA gene analysis ({num_batches} batches)...")
-    def run_batch(i: int):
+    logger.info(
+        f"🔹 [Step 2/4] Running MAGMA gene analysis "
+        f"({'single run' if num_batches == 1 else f'{num_batches} batches'})..."
+    )
+    print(
+        f"                  🔹 [Step 2/4] Running MAGMA gene analysis "
+        f"({'single run' if num_batches == 1 else f'{num_batches} batches'})..."
+    )
+
+    def run_batch(i=None):
         batch_cmd = [
             magma,
             "--bfile", str(ld_ref),
             "--gene-annot", f"{gene_annot_out}.genes.annot",
             "--pval", str(pval_file), f"ncol={n_sample_col}",
             "--gene-model", gene_model,
-            "--batch", str(i), str(num_batches),
             "--out", str(gene_annot_out),
         ]
+
+        # ✅ ONLY add --batch when MAGMA allows it
+        if num_batches > 1:
+            batch_cmd.extend(["--batch", str(num_batches), str(i)])
+
         subprocess.run(batch_cmd, check=True, capture_output=True, text=True)
-    with ThreadPoolExecutor(max_workers=num_cores) as executor:
-        futures = [executor.submit(run_batch, i) for i in range(1, num_batches + 1)]
-        for f in as_completed(futures):
-            f.result()
+
     # ---------------------------------------------------------
-    # Step 3 — Merge MAGMA batches
+    # Execute
     # ---------------------------------------------------------
-    logger.info("🔹 [Step 3/4] Merging MAGMA batch results...")
-    print("     🔹 [Step 3/4] Merging MAGMA batch results...")
-    merge_cmd = [
-        magma,
-        "--merge", str(gene_annot_out),
-        "--out", str(merged_prefix),
-    ]
-    run_subprocess_with_logging(merge_cmd, logger)
-    logger.info("🗑️ Cleaning up intermediate batch files...")
-    for f in magma_analysis_folder.glob(f"{sample_id}_magma.batch*"):
-        try:
-            f.unlink()
-        except Exception as e:
-            logger.warning(f"Could not delete {f}: {e}")
-    
+    if num_batches == 1:
+        run_batch()
+        os.system(f"mv {gene_annot_out}.genes.raw {merged_prefix}.genes.raw")
+        os.system(f"mv {gene_annot_out}.genes.out {merged_prefix}.genes.out")
+    else:
+        with ThreadPoolExecutor(max_workers=num_cores) as executor:
+            futures = [
+                executor.submit(run_batch, i)
+                for i in range(1, num_batches + 1)
+            ]
+            for f in as_completed(futures):
+                f.result()
+
+    # ---------------------------------------------------------
+    # Step 3 — Merge MAGMA batches (ONLY if needed)
+    # ---------------------------------------------------------
+    if num_batches > 1:
+        logger.info("🔹 [Step 3/4] Merging MAGMA batch results...")
+        print("                 🔹 [Step 3/4] Merging MAGMA batch results...")
+
+        merge_cmd = [
+            magma,
+            "--merge", str(gene_annot_out),
+            "--out", str(merged_prefix),
+        ]
+        run_subprocess_with_logging(merge_cmd, logger)
+
+        logger.info("🗑️ Cleaning up intermediate batch files...")
+        for f in magma_analysis_folder.glob(f"{sample_id}_magma.batch*"):
+            try:
+                f.unlink()
+            except Exception as e:
+                logger.warning(f"Could not delete {f}: {e}")
+
+    else:
+        logger.info("🔹 [Step 3/4] Single batch run — merge step skipped.")
+        print("                 🔹 [Step 3/4] Single batch run — merge step skipped.")
+
+
     # ---------------------------------------------------------
     # Step 4 — Gene-set enrichment (optional)
     # ---------------------------------------------------------
     if geneset_file and Path(geneset_file).exists():
         logger.info("🔹 [Step 4/4] Running MAGMA gene-set analysis...")
-        print("     🔹 [Step 4/4] Running MAGMA gene-set analysis...")
+        print("                 🔹 [Step 4/4] Running MAGMA gene-set analysis...")
         geneset_cmd = [
             magma,
             "--gene-results", str(merged_raw),
@@ -412,7 +453,7 @@ def magma_analysis_pipeline(
             "magma_genes_out": f"{magma_gene_file['merged_prefix']}.genes.out",
         }
     else:
-        print("     ❌ Pathway analysis not performed because the gene set file was not provided or does not exist.")
+        print("         ❌ Pathway analysis not performed because the gene set file was not provided or does not exist.")
         return {
             "magma_genes_raw": f"{magma_gene_file['merged_prefix']}.genes.raw",
             "magma_genes_out": f"{magma_gene_file['merged_prefix']}.genes.out",

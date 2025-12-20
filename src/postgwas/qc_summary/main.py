@@ -46,7 +46,8 @@ def run_qc_summary(
         threads=n_threads,
         bcftools_bin=bcftools_bin
     )
-    print("     postgwas qc summary module started running")
+    print("             postgwas qc summary module started running")
+    print(" ")
     
     # ------------------------------------------------------------------
     # 2️⃣ Parse bcftools stats into sectioned DataFrames

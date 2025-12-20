@@ -35,7 +35,7 @@ def run_sumstat_imputation_direct(args,ctx=None):
             ref=args.ref,
             threads=args.nthreads
         )
-        print("     ✅ Sumstat Imputation using PRED-LD software completed.")
+        print("         ✅ Sumstat Imputation using PRED-LD software completed.")
         print(" ")
     else:
         raise ValueError(f"Imputation tool not yet implemented for DIRECT mode: {tool}")

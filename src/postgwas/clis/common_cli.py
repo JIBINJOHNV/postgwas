@@ -481,6 +481,7 @@ def get_common_magma_covar_parser(add_help=False):
     )
     return parser
 
+
 def get_common_susie_arguments(add_help=False):
     """
     Add SuSiE tuning arguments shared by DIRECT and PIPELINE modes.
@@ -488,9 +489,13 @@ def get_common_susie_arguments(add_help=False):
     parser = argparse.ArgumentParser(add_help=add_help)
     susie = parser.add_argument_group("SuSiE Fine-Mapping Arguments")
 
+    # ------------------------------------------------------------------
+    # Locus selection / SuSiE tuning
+    # ------------------------------------------------------------------
     susie.add_argument(
         "--lp_threshold",
-        default="7.3",
+        type=float,
+        default=7.3,
         metavar="",
         help=(
             "Minus log10(P) threshold used to include a locus for fine-mapping. "
@@ -501,88 +506,120 @@ def get_common_susie_arguments(add_help=False):
 
     susie.add_argument(
         "--L",
-        default="10",
+        type=int,
+        default=10,
         metavar="",
         help=(
             "Maximum number of SuSiE credible sets per locus. "
             "Increasing this may increase runtime and memory usage. "
-            f"[bold green]Default:[/bold green] [cyan]10[/cyan]"
+            "[bold green]Default:[/bold green] [cyan]10[/cyan]"
         ),
     )
 
+    # ------------------------------------------------------------------
+    # Resource / timeout controls
+    # ------------------------------------------------------------------
     susie.add_argument(
         "--min_ram_per_worker_gb",
-        default="4",
+        type=int,
+        default=4,
         metavar=" ",
         help=(
             "Minimum RAM (in GB) reserved per worker when running fine-mapping "
             "in parallel. Used for auto-detecting optimal worker count. "
-            f"[bold green]Default:[/bold green] [cyan]4[/cyan]"
+            "[bold green]Default:[/bold green] [cyan]4[/cyan]"
         ),
     )
 
     susie.add_argument(
         "--timeout_ld_seconds",
-        default="180",
+        type=int,
+        default=180,
         metavar=" ",
         help=(
             "Maximum time (in seconds) allowed for PLINK LD-matrix computation "
             "per locus. Execution aborts for loci exceeding this limit. "
-            f"[bold green]Default:[/bold green] [cyan]180[/cyan]"
+            "[bold green]Default:[/bold green] [cyan]180[/cyan]"
         ),
     )
 
     susie.add_argument(
         "--timeout_susie_seconds",
-        default="180",
+        type=int,
+        default=180,
         metavar=" ",
         help=(
             "Maximum time (in seconds) allowed for SuSiE model fitting per locus. "
             "Loci exceeding the limit are skipped with a warning. "
-            f"[bold green]Default:[/bold green] [cyan]180[/cyan]"
+            "[bold green]Default:[/bold green] [cyan]180[/cyan]"
         ),
     )
 
-    susie.add_argument(
+    # ------------------------------------------------------------------
+    # MHC handling (default: SKIP MHC)
+    # ------------------------------------------------------------------
+    mhc_group = susie.add_mutually_exclusive_group()
+
+    mhc_group.add_argument(
         "--finemap_skip_mhc",
         action="store_true",
         help=(
-            "Skip the extended MHC region (chr6:25–34Mb), which often contains "
-            "extremely complex LD that slows or destabilizes fine-mapping. "
-            f"[bold green]Default:[/bold green] [cyan]False[/cyan]"
+            "Skip the extended MHC region (chr6:25–35Mb). "
+            "[bold green]Default[/bold green]"
         ),
     )
 
+    mhc_group.add_argument(
+        "--finemap_include_mhc",
+        action="store_true",
+        help=(
+            "Include the extended MHC region (chr6:25–35Mb). "
+            "Overrides the default skip behavior."
+        ),
+    )
+
+    # Explicit default (important)
+    susie.set_defaults(finemap_skip_mhc=True)
+
     susie.add_argument(
         "--finemap_mhc_start",
-        default="25000000",
+        type=int,
+        default=25_000_000,
         metavar=" ",
         help=(
-            "Start coordinate for MHC region to skip when --finemap_skip_mhc is used. "
-            f"[bold green]Default:[/bold green] [cyan]25000000[/cyan]"
+            "Start coordinate for the MHC region to skip "
+            "(used unless --finemap_include_mhc is set). "
+            "[bold green]Default:[/bold green] [cyan]25,000,000[/cyan]"
         ),
     )
 
     susie.add_argument(
         "--finemap_mhc_end",
-        default="35000000",
+        type=int,
+        default=35_000_000,
         metavar=" ",
         help=(
-            "End coordinate for MHC region to skip when --finemap_skip_mhc is used. "
-            f"[bold green]Default:[/bold green] [cyan]35000000[/cyan]"
+            "End coordinate for the MHC region to skip "
+            "(used unless --finemap_include_mhc is set). "
+            "[bold green]Default:[/bold green] [cyan]35,000,000[/cyan]"
         ),
     )
 
+    # ------------------------------------------------------------------
+    # LD reference
+    # ------------------------------------------------------------------
     susie.add_argument(
         "--finemap_ld_ref",
         metavar=" ",
         help=(
-            "[bold bright_red]Required[/bold bright_red]: Prefix of the PLINK LD reference panel (e.g., 1000G EUR). "
-            "Should correspond to files: PREFIX.bed, PREFIX.bim, PREFIX.fam. "
-            "This reference panel is used to compute LD matrices per locus. "
-            f"[bold green]Default:[/bold green] [cyan]None[/cyan]"
+            "[bold bright_red]Required[/bold bright_red]: Prefix of the PLINK LD "
+            "reference panel (e.g., 1000G EUR). Should correspond to files: "
+            "PREFIX.bed, PREFIX.bim, PREFIX.fam. This reference panel is used "
+            "to compute LD matrices per locus. "
+            "[bold green]Default:[/bold green] [cyan]None[/cyan]"
         ),
     )
+
     return parser
 
     
@@ -1061,10 +1098,10 @@ def get_common_sumstat_filter_parser(add_help=False):
         "--maf-cutoff",
         type=float,
         metavar=" ",
-        default=None,
+        default=0.002,
         help=(
             " Minimum Minor Allele Frequency (MAF) required to retain a variant .\n"
-            "[bold green]Default:[/bold green] [cyan]None[/cyan] (no MAF filtering). "
+            "[bold green]Default:[/bold green] [cyan]0.001[/cyan] (no MAF filtering). "
             "Make sure the AF field is present in the VCF FORMAT column."
         )
     )
@@ -1123,14 +1160,14 @@ def get_common_sumstat_filter_parser(add_help=False):
     )
     
     group.add_argument(
-        "--include-palindromic",
+        "--exclude-palindromic",
         action="store_true",
         help=textwrap.dedent(
             """
             Control whether ambiguous palindromic SNPs (A/T, C/G) are removed.
 
             By default, all palindromic SNPs are kept. When this flag is used,
-            only palindromic SNPs whose allele frequency falls within the
+            palindromic SNPs whose allele frequency falls within the
             ambiguity interval defined by [cyan]--palindromic-af-lower[/cyan]
             and [cyan]--palindromic-af-upper[/cyan] will be removed.
 
@@ -1139,7 +1176,7 @@ def get_common_sumstat_filter_parser(add_help=False):
                 (omit this flag)
 
             Remove ambiguous palindromic SNPs:
-                --include-palindromic
+                --exclude-palindromic
 
             [bold green]Default:[/bold green] [cyan]Keep all palindromic SNPs[/cyan]
             """
@@ -1157,8 +1194,8 @@ def get_common_sumstat_filter_parser(add_help=False):
         default=0.4,
         metavar=" ",
         help=(
-            "Lower AF bound used to detect ambiguous palindromic SNPs when\n"
-            "[cyan]--include-palindromic=False[/cyan].\n"
+            "Lower AF bound used to detect ambiguous palindromic SNPs when the flag \n"
+            "[cyan]--exclude-palindromic[/cyan] is used.\n"
             "[bold green]Default:[/bold green] [cyan]0.4[/cyan]"
         )
     )
@@ -1169,8 +1206,8 @@ def get_common_sumstat_filter_parser(add_help=False):
         default=0.6,
         metavar=" ",
         help=(
-            "Upper AF bound used to detect ambiguous palindromic SNPs when\n"
-            "[cyan]--include-palindromic=False[/cyan].\n"
+            "Upper AF bound used to detect ambiguous palindromic SNPs when the flag \n"
+            "[cyan]--exclude-palindromic[/cyan].\n"
             "[bold green]Default:[/bold green] [cyan]0.6[/cyan]"
         )
     )

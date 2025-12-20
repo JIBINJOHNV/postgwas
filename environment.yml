@@ -31,6 +31,7 @@ dependencies:
   - r-cowplot
   - r-optparse
   - r-patchwork
+  - r-progressr
   - plink
   - aws-c-cal=0.9.2
   - aws-c-common=0.12.4

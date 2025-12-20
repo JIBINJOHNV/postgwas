@@ -5,6 +5,7 @@ import scipy.linalg
 import random
 import logging
 import argparse
+import pprint
 
 from sklearn.linear_model import LinearRegression, RidgeCV, LassoCV
 from sklearn.metrics import make_scorer
@@ -708,12 +709,13 @@ def pops_main(config_dict):
     # Configure logging system
     logging.basicConfig(
         level=logging.DEBUG if config_dict["verbose"] else logging.INFO,
-        format="        %(asctime)s - %(levelname)s - %(message)s",
+        format="                %(asctime)s - %(levelname)s - %(message)s",
         handlers=handlers
     )
 
-    logging.info(f"Logging to file: {log_file}")
-
+    #logging.info(f"Logging to file: {log_file}")
+    logging.info(log_file)
+    
     ### Set logging settings
     if config_dict["verbose"]:
         logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.DEBUG)

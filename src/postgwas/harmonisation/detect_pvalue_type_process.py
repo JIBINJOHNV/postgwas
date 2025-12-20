@@ -218,7 +218,7 @@ def detect_and_convert_pval(
     detection_info = detect_pval_type(df, sample_column_dict, proportion_threshold)
     qc_info = detection_info.copy()
 
-    print(f"        ✅ P value Detected as {detection_info['detected_type']} for chromosome {chromosome}")
+    print(f"                ✅ P value Detected as {detection_info['detected_type']} for chromosome {chromosome}")
     # --- Case: -log10(p) detected ---
     if detection_info["detected_type"] == "mlogp":
         log_print("Converting -log10(p) P-values to raw P-values…")

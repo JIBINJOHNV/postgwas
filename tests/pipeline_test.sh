@@ -8,7 +8,7 @@ genome_version="GRCh37"
 python /Users/JJOHN41/Documents/developing_software/postgwas/src/postgwas/harmonisation/cli.py \
       --nthreads 10 \
       --max-mem 50G \
-      --config /Users/JJOHN41/Documents/developing_software/data/oudir/pipeline_testing/Imputation/ADHD2022_iPSYCH_deCODE_PGC_gwas2vcf_config.csv \
+      --config /Users/JJOHN41/Documents/developing_software/postgwas/tests/example_input_file.csv \
       --defaults /Users/JJOHN41/Documents/developing_software/postgwas/tests/harmonisation.yaml
 
 
@@ -93,14 +93,18 @@ python /Users/JJOHN41/Documents/developing_software/postgwas/src/postgwas/pipeli
         --plink /Users/JJOHN41/Documents/software_resources/softwares/plink 
 
 
+docker run --platform=linux/amd64 \
+    -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -it jibinjv/postgwas:1.0 postgwas  harmonisation \
+        --nthreads 10 \
+        --max-mem 50G \
+        --config /Users/JJOHN41/Documents/developing_software/postgwas/tests/example_input_file.csv \
+        --defaults /Users/JJOHN41/Documents/developing_software/postgwas/tests/harmonisation.yaml
 
-${base_dir}/1_harmonisation/${sample_id}_GRCh38_merged.vcf.gz
 
 
-jibin/postgwas:1.0 
-
-
-
+sample_id="PGC3_SCZ_european"
 
 docker run --platform=linux/amd64 \
   -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
@@ -114,9 +118,9 @@ docker run --platform=linux/amd64 \
         --nthreads 10 \
         --max-mem 60G \
         --seed 10 \
-        --vcf  ${base_dir}/1_harmonisation/${sample_id}_GRCh38_chr1_chr2.vcf.gz \
+        --vcf /Users/JJOHN41/Documents/developing_software/data/oudir/PGC3_SCZ_EUR/harmonised_susmstat/${sample_id}_GRCh38_merged.vcf.gz \
         --sample_id ${sample_id} \
-        --outdir /Users/JJOHN41/Documents/developing_software/data/oudir/pipeline_testing/ \
+        --outdir /Users/JJOHN41/Documents/developing_software/data/oudir/PGC3_SCZ_EUR/ \
         --imputation_tool pred_ld \
         --ref_ld /Users/JJOHN41/Documents/software_resources/resourses/postgwas/imputation/pred-ld/ref/ \
         --gwas2vcf_resource /Users/JJOHN41/Documents/software_resources/resourses/postgwas/gwas2vcf/ \
@@ -145,6 +149,34 @@ docker run --platform=linux/amd64 \
         --feature_mat_prefix ${resourse_folder}/pops/features_munged/pops_features \
         --pops_gene_loc_file ${resourse_folder}/pops/GRCh37_gene_annot_jun10.txt \
         --finemap_ld_ref ${resourse_folder}/onekg_plinkfiles/GRCh37/EUR.chr1_22.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes_multiallele_uniqid_Grch37_maf0001 \
+
+
+
+
+
+
+
+
+docker run --platform=linux/amd64 \
+    -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -it jibinjv/postgwas:1.0 postgwas  harmonisation \
+        --nthreads 10 \
+        --max-mem 50G \
+        --config /Users/JJOHN41/Documents/developing_software/data/oudir/PGC3_SCZ_EUR/03_imputation/PGC3_SCZ_european_gwas2vcf_config.csv \
+        --defaults /Users/JJOHN41/Documents/developing_software/postgwas/tests/harmonisation.yaml
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

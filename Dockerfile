@@ -14,7 +14,7 @@ RUN apt-get update && \
         libcurl4-openssl-dev libsuitesparse-dev \
         zlib1g-dev libbz2-dev liblzma-dev \
         ca-certificates pkg-config \
-        libssl-dev libxml2-dev \
+        libssl-dev libxml2-dev pigz \
         procps && \
     rm -rf /var/lib/apt/lists/*
 

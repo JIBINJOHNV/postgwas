@@ -275,8 +275,8 @@ def safe_thread_count(requested_threads, gb_per_thread = 20):
               f"but require ≥ {gb_per_thread} GB per thread.")
         return 1
     if requested_threads > max_threads:
-        print(f"    ⚠️ Reducing threads from {requested_threads} → {max_threads} "
-              f"    (RAM available: {total_ram_gb:.1f} GB; {gb_per_thread} GB/thread)")
+        print(f"            ⚠️ Reducing threads from {requested_threads} → {max_threads} "
+              f"            (RAM available: {total_ram_gb:.1f} GB; {gb_per_thread} GB/thread)")
         return max_threads
     
     print(f"    ✔ Using {requested_threads} threads "

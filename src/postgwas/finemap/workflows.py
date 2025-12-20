@@ -17,7 +17,7 @@ from postgwas.finemap.main import (
 
 
 def run_susie_direct(args):
-    print("\n       === Running Finemapping (SuSiE)  ===")
+    print("\n               === Running Finemapping (SuSiE)  ===")
 
     final_plink_path = None
 
@@ -72,7 +72,7 @@ def run_susie_direct(args):
         mhc_start=args.finemap_mhc_start,
         mhc_end=args.finemap_mhc_end,
     )
-    print(f"        👉 Results are saved in: {output_folder.resolve()}\n")
-    print(f"      🎉 Finemapping using SuSiE is Completed")
+    print(f"                👉 Results are saved in: {output_folder.resolve()}\n")
+    print(f"                🎉 Finemapping using SuSiE is Completed")
     print()
     return susie_results

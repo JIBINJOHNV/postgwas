@@ -16,7 +16,7 @@ from pathlib import Path
 #   DIRECT MODE ENGINE
 # =====================================================================
 def run_magma_direct(args, ctx=None):
-    print("\n       === Running MAGMA Gene & Geneset Analysis (Direct Mode) ===")
+    print("\n               === Running MAGMA Gene & Geneset Analysis ===")
     
     final_magma_path = None
 
@@ -25,7 +25,7 @@ def run_magma_direct(args, ctx=None):
         if Path(args.magma).exists():
             final_magma_path = args.magma
         else:
-            print(f"   ⚠️  [WARNING] The provided path does not exist: {args.magma}")
+            print(f"    ⚠️[WARNING] The provided path does not exist: {args.magma}")
             print("       Attempting to auto-detect 'magma' in system PATH instead...")
 
     # 2. If we don't have a valid path yet (either not provided OR provided path was wrong), search PATH
@@ -70,7 +70,7 @@ def run_magma_direct(args, ctx=None):
     if ctx is not None:
         ctx["magma_gene"] = outputs
         
-    print("\n       🎉 MAGMA analysis Completed.")
+    print("\n           🎉 MAGMA analysis Completed.")
     print(" ")
     return outputs
 
