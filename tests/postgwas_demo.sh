@@ -5,7 +5,6 @@ base_dir='/Users/JJOHN41/Documents/developing_software/data/oudir/'
 resourse_folder="/Users/JJOHN41/Documents/software_resources/resourses/postgwas/"
 genome_version="GRCh38"
 
-
 ## convert summstat to vcf and harmonise
 docker run --platform=linux/amd64 \
     -v /Users/JJOHN41/Documents:/Users/JJOHN41/Documents \
@@ -15,7 +14,6 @@ docker run --platform=linux/amd64 \
         --max-mem 50G \
         --config /Users/JJOHN41/Documents/developing_software/postgwas/tests/example_input_file.csv \
         --defaults /Users/JJOHN41/Documents/developing_software/postgwas/tests/harmonisation.yaml
-
 
 
 docker run --platform=linux/amd64 \
@@ -30,7 +28,7 @@ docker run --platform=linux/amd64 \
         --nthreads 10 \
         --max-mem 60G \
         --seed 10 \
-        --vcf ${base_dir}/00_harmonised_sumstat/${sample_id}_GRCh38_chr19_22.vcf.gz \
+        --vcf ${base_dir}/00_harmonised_sumstat/${sample_id}_GRCh38_merged.vcf.gz \
         --sample_id ${sample_id} \
         --outdir /Users/JJOHN41/Documents/developing_software/data/oudir/ \
         --imputation_tool pred_ld \
@@ -61,6 +59,9 @@ docker run --platform=linux/amd64 \
         --feature_mat_prefix ${resourse_folder}/pops/features_munged/pops_features \
         --pops_gene_loc_file ${resourse_folder}/pops/GRCh37_gene_annot_jun10.txt \
         --finemap_ld_ref ${resourse_folder}/onekg_plinkfiles/GRCh37/EUR.chr1_22.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes_multiallele_uniqid_Grch37_maf0001
+
+
+
 
 
 

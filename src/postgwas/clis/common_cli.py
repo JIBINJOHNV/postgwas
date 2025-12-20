@@ -482,11 +482,19 @@ def get_common_magma_covar_parser(add_help=False):
     return parser
 
 
+
 def get_common_susie_arguments(add_help=False):
     """
-    Add SuSiE tuning arguments shared by DIRECT and PIPELINE modes.
+    Add SuSiE tuning arguments. 
+    Arguments are added directly to the 'susie' group object to force 
+    them to appear under the SuSiE heading in the help menu.
     """
-    parser = argparse.ArgumentParser(add_help=add_help)
+    parser = argparse.ArgumentParser(
+        add_help=add_help,
+        formatter_class=RichHelpFormatter,
+    )
+
+    # All arguments added to this group WILL stay under this heading
     susie = parser.add_argument_group("SuSiE Fine-Mapping Arguments")
 
     # ------------------------------------------------------------------
@@ -556,11 +564,9 @@ def get_common_susie_arguments(add_help=False):
     )
 
     # ------------------------------------------------------------------
-    # MHC handling (default: SKIP MHC)
+    # MHC handling (Added DIRECTLY to susie group)
     # ------------------------------------------------------------------
-    mhc_group = susie.add_mutually_exclusive_group()
-
-    mhc_group.add_argument(
+    susie.add_argument(
         "--finemap_skip_mhc",
         action="store_true",
         help=(
@@ -569,7 +575,7 @@ def get_common_susie_arguments(add_help=False):
         ),
     )
 
-    mhc_group.add_argument(
+    susie.add_argument(
         "--finemap_include_mhc",
         action="store_true",
         help=(
@@ -577,9 +583,6 @@ def get_common_susie_arguments(add_help=False):
             "Overrides the default skip behavior."
         ),
     )
-
-    # Explicit default (important)
-    susie.set_defaults(finemap_skip_mhc=True)
 
     susie.add_argument(
         "--finemap_mhc_start",
@@ -620,8 +623,10 @@ def get_common_susie_arguments(add_help=False):
         ),
     )
 
-    return parser
+    # Set the default global state
+    parser.set_defaults(finemap_skip_mhc=True)
 
+    return parser
     
 def get_common_magma_assoc_parser(add_help=False):
     """
