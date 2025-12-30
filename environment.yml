@@ -7,6 +7,10 @@ dependencies:
   - _py-xgboost-mutex=2.0
   - aws-c-auth=0.9.0
   - numpy=1.23.5
+  - bioconda::gprofiler-official
+  - bioconda::gseapy
+  - conda-forge::py2cytoscape
+  - networkx
   - r-susier
   - r-base=4.3.*
   - r-argparse
@@ -31,8 +35,13 @@ dependencies:
   - r-cowplot
   - r-optparse
   - r-patchwork
+  - r-future.batchtools
+  - r-rfast
+  - r-processx
   - r-progressr
   - plink
+  - plink2
+  - gcta
   - aws-c-cal=0.9.2
   - aws-c-common=0.12.4
   - aws-c-compression=0.3.1
@@ -187,5 +196,6 @@ dependencies:
       - wcwidth==0.2.14
       - zipp==3.20.2
       - polars-lts-cpu==0.20.31
+      - omnipath
       - git+https://github.com/bioinformed/vgraph.git
 prefix: /Users/JJOHN41/miniconda3/envs/postgwas

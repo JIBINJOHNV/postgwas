@@ -18,7 +18,7 @@ from rich_argparse import RichHelpFormatter
 # BACKEND RUNNERS
 # =========================================================
 from postgwas.finemap.workflows import (
-    run_susie_direct,
+    run_parallel_susie,
 )
 
 # Shared parsers
@@ -103,7 +103,7 @@ def main():
 
     # Dispatch logic based only on --finemap_method
     if args.finemap_method == "susie":
-        run_susie_direct(args)
+        run_parallel_susie(args)
     elif args.finemap_method == "finemap":
         print("FINEMAP method selected. FINEMAP is not yet implemented.")
     else:

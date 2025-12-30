@@ -25,7 +25,7 @@
         "liftover":"Yes",
         "chr_pos_col":"NA",
         "resourse_folder":"\/Users\/JJOHN41\/Documents\/software_resources\/resourses\/postgwas\/gwas2vcf\/",
-        "output_folder":"\/Users\/JJOHN41\/Documents\/developing_software\/data\/oudir\/"
+        "output_folder":"\/Users\/JJOHN41\/Documents\/developing_software\/data\/oudir\/PGC3_SCZ_european\/00_harmonised_sumstat\/"
     },
     {
         "sumstat_file":"\/Users\/JJOHN41\/Documents\/developing_software\/postgwas_underdevelopment\/postgwas\/data\/harmonisation\/ADHD2022_iPSYCH_deCODE_PGC.meta.gz",

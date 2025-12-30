@@ -54,7 +54,6 @@ def validate_locus_file(path):
     #print(f"✅ Locus file loaded successfully using delimiter '{sep}'.")
     return df
 
-
 def run_susie(
     locus_file,
     sumstat_file,
@@ -69,6 +68,7 @@ def run_susie(
     timeout_ld_seconds="180",
     timeout_susie_seconds="180",
     skip_mhc=False,
+    finemap_mhc_chrom="6",
     mhc_start="25000000",
     mhc_end="35000000",
     verbose=False,
@@ -99,8 +99,9 @@ def run_susie(
         "--min_ram_per_worker_gb", str(min_ram_per_worker_gb),
         "--timeout_ld_seconds", str(timeout_ld_seconds),
         "--timeout_susie_seconds", str(timeout_susie_seconds),
-        "--mhc_start", str(mhc_start),
-        "--mhc_end", str(mhc_end),
+        "--finemap_mhc_chrom", str(finemap_mhc_chrom),
+        "--mhc_start", str(mhc_start),   # ✅ FIX
+        "--mhc_end", str(mhc_end),       # ✅ FIX
     ]
 
     if skip_mhc:
@@ -109,22 +110,23 @@ def run_susie(
     if verbose:
         cmd.append("--verbose")
 
-    try:
-        with open(log_file, "w") as log:
-            subprocess.run(cmd, stdout=log, stderr=log, check=True)
+    with open(log_file, "w") as log:
+        try:
+            subprocess.run(
+                cmd,
+                stdout=log,
+                stderr=log,
+                check=True
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"❌ SuSiE failed (exit code {e.returncode}). See log file.")
+            sys.exit(1)
 
-        flames_input = output_folder / "flames_input"
+    flames_input = output_folder / "flames_input"
 
-        return {
-            "status": "success",
-            "log_file": str(log_file),
-            "output_dir": str(output_folder),
-            "flames_input": str(flames_input),
-        }
-
-    except subprocess.CalledProcessError as e:
-        return {
-            "status": "failed",
-            "log_file": str(log_file),
-            "returncode": e.returncode,
-        }
+    return {
+        "status": "success",
+        "log_file": str(log_file),
+        "output_dir": str(output_folder),
+        "flames_input": str(flames_input),
+    }

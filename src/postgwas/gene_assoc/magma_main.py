@@ -117,6 +117,7 @@ def run_magma_analysis(
 
     if n_lines > 1000:
         num_batches = decide_magma_batches_from_annot(annot_file=annot_path)
+        #num_batches = min(num_batches, num_cores)
     else:
         num_batches = 1
 
@@ -144,7 +145,7 @@ def run_magma_analysis(
 
         # ✅ ONLY add --batch when MAGMA allows it
         if num_batches > 1:
-            batch_cmd.extend(["--batch", str(num_batches), str(i)])
+            batch_cmd.extend(["--batch", str(i), str(num_batches),])
 
         subprocess.run(batch_cmd, check=True, capture_output=True, text=True)
 

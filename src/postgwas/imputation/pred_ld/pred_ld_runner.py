@@ -110,7 +110,7 @@ def get_memory_status() -> Tuple[Optional[float], Optional[float]]:
 #  CHROMOSOME HELPERS
 # =============================================================================
 
-BIG_CHROMS = {"1", "2", "3", "4", "5"}
+BIG_CHROMS = {"1", "2", "3", "4"}
 
 
 def is_big_chr(chr_id: str) -> bool:
@@ -134,12 +134,11 @@ def build_interleaved_chr_order(chromosomes: List) -> List[str]:
     - Missing chromosomes are skipped safely
     """
     desired_order = [
-        "1", "22", "21", "20",
-        "19","18", "2", "17",
-        "16", "15", "14", "3", 
-        "13","12", "4", "11",
-        "10", "5", "9", "8",
-        "7", "6", "X"
+        "1", "22", "21", "20","19","18", 
+        "2", "17", "16", "15", "14", 
+        "3", "13","12", "11", 
+        "4", "10", "9",  "8",
+        "5", "7", "6", "X"
     ]
     # Normalize input
     chroms = {str(c).upper().replace("CHR", "") for c in chromosomes}
@@ -218,8 +217,9 @@ def run_pred_ld_parallel(
     # -------------------------------------------------------------------------
     # 3. Threads / workers & chromosome order
     # -------------------------------------------------------------------------
-    threads = safe_thread_count(threads, gb_per_thread=20)
-    max_workers = min(2, max(1, threads))
+    threads = safe_thread_count(threads, gb_per_thread=30)
+    #max_workers = min(2, max(1, threads))
+    max_workers = threads
     chr_order = build_interleaved_chr_order(chromosomes)
 
     write_log(master_log_file, f"Running PRED-LD with {max_workers} parallel workers")

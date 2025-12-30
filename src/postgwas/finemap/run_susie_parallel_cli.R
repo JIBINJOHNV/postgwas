@@ -75,6 +75,10 @@ parser$add_argument("--timeout_susie_seconds", type = "integer", default = 180,
 
 parser$add_argument("--skip_mhc", action = "store_true",
                     help = "Skip MHC region (default TRUE)")
+
+parser$add_argument("--finemap_mhc_chrom",default = '6',
+                    help = "Chromosome of MHC region (default 6)")
+
 parser$add_argument("--mhc_start", type = "double", default = 25e6,
                     help = "MHC start position")
 parser$add_argument("--mhc_end", type = "double", default = 35e6,
@@ -107,18 +111,7 @@ run_susie_finemap_parallel(
   timeout_ld_seconds    = args$timeout_ld_seconds,
   timeout_susie_seconds = args$timeout_susie_seconds,
   skip_mhc              = args$skip_mhc,
+  mhc_chrom             = args$finemap_mhc_chrom,
   mhc_start             = args$mhc_start,
   mhc_end               = args$mhc_end
 )
-
-
-# Rscript run_susie_finemap_parallel_cli.R \
-#     --locus_file loci.tsv \
-#     --sumstat_file sumstats.tsv \
-#     --sample_id PGC3_SCZ \
-#     --ld_ref /path/to/EUR.ref \
-#     --plink /usr/local/bin/plink \
-#     --SUSIE_Analysis_folder SuSiE_analysis \
-#     --workers auto \
-#     --L 10 \
-#     --verbose

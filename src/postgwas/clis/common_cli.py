@@ -162,7 +162,7 @@ def get_ld_clump_parser(add_help=False):
     )
 
     general.add_argument(
-        "--population",
+        "--ld_clump_population",
         default="EUR",
         choices=["EUR", "AFR", "EAS"],
         metavar=" ",
@@ -530,7 +530,7 @@ def get_common_susie_arguments(add_help=False):
     susie.add_argument(
         "--min_ram_per_worker_gb",
         type=int,
-        default=4,
+        default=10,
         metavar=" ",
         help=(
             "Minimum RAM (in GB) reserved per worker when running fine-mapping "
@@ -585,9 +585,21 @@ def get_common_susie_arguments(add_help=False):
     )
 
     susie.add_argument(
+        "--finemap_mhc_chrom",
+        type=int,
+        default=6,
+        metavar="INT",
+        help=(
+            "Chromosome containing the MHC region to skip during fine-mapping "
+            "(used unless --finemap_include_mhc is set). "
+            "[bold green]Default:[/bold green] [cyan]6[/cyan]"
+        ),
+    )
+
+    susie.add_argument(
         "--finemap_mhc_start",
         type=int,
-        default=25_000_000,
+        default=25000000,
         metavar=" ",
         help=(
             "Start coordinate for the MHC region to skip "
@@ -599,7 +611,7 @@ def get_common_susie_arguments(add_help=False):
     susie.add_argument(
         "--finemap_mhc_end",
         type=int,
-        default=35_000_000,
+        default=35000000,
         metavar=" ",
         help=(
             "End coordinate for the MHC region to skip "
@@ -1516,7 +1528,7 @@ def get_ldsc_common_parser(add_help: bool = False) -> argparse.ArgumentParser:
     mung = parser.add_argument_group("LDSC Munge Settings")
 
     mung.add_argument(
-        "--info-min",
+        "--heritability_info-min",
         metavar=" ",
         type=float,
         default=0.9,
@@ -1525,30 +1537,30 @@ def get_ldsc_common_parser(add_help: bool = False) -> argparse.ArgumentParser:
     )
 
     mung.add_argument(
-        "--maf-min",
+        "--heritability_maf-min",
         metavar=" ",
         type=float,
         default=0.01,
         help=("Minimum MAF during munge_sumstats (default: 0.01). [bold green]Default:[/bold green] [cyan]0.01[/cyan]" )
     )
 
-    docker_grp = parser.add_argument_group("LDSC Docker Execution ")
+    # docker_grp = parser.add_argument_group("LDSC Docker Execution ")
 
-    docker_grp.add_argument(
-        "--docker-image",
-        metavar=" ",
-        type=str,
-        default="jibinjv/ldsc:1.0.1",
-        help=("Docker image used to run LDSC. [bold green]Default:[/bold green] [cyan]0.7[/cyan]"),
-    )
+    # docker_grp.add_argument(
+    #     "--docker-image",
+    #     metavar=" ",
+    #     type=str,
+    #     default="jibinjv/ldsc:1.0.1",
+    #     help=("Docker image used to run LDSC. [bold green]Default:[/bold green] [cyan]0.7[/cyan]"),
+    # )
 
-    docker_grp.add_argument(
-        "--platform",
-        metavar=" ",
-        type=str,
-        default="linux/amd64",
-        help="Docker platform (default: linux/amd64, for Apple Silicon + x86 image). [bold green]Default:[/bold green] [cyan]linux/amd64[/cyan]",
-    )
+    # docker_grp.add_argument(
+    #     "--platform",
+    #     metavar=" ",
+    #     type=str,
+    #     default="linux/amd64",
+    #     help="Docker platform (default: linux/amd64, for Apple Silicon + x86 image). [bold green]Default:[/bold green] [cyan]linux/amd64[/cyan]",
+    # )
 
     return parser
 

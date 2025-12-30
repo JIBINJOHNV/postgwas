@@ -41,7 +41,7 @@ def runtime(func):
         start = time.time()
         func(*args, **kwargs)
         end = time.time()
-        print(f"        Runtime: {round(end - start, 2)}")
+        print(f"\t\t\t\tRuntime: {round(end - start, 2)}")
 
     return wrapper
 
@@ -1077,10 +1077,10 @@ def check_risk_loci(GenomicRiskLoci, creds, locno, filter):
 def create_95perc_credset(creds, prob_col):
     sorted_data = creds.sort_values(prob_col)
     if sum(sorted_data[prob_col]) < 0.95:
-        print("\n                   WARNING: The sum of the probabilities is less than 0.95")
+        print("\n\t\t\t\tWARNING: The sum of the probabilities is less than 0.95")
         return(creds)
     if sum(sorted_data[prob_col]) > 1.0:
-        print("\n                   WARNING: The sum of the probabilities is greater than 1.0, rescaling")
+        print("\n\t\t\t\tWARNING: The sum of the probabilities is greater than 1.0, rescaling")
         sorted_data[prob_col] = sorted_data[prob_col] / sum(sorted_data[prob_col])
     sorted_data["cumulative_sum"] = sorted_data[prob_col].cumsum()
     creds = sorted_data[sorted_data["cumulative_sum"] >= 0.05]
@@ -1138,9 +1138,12 @@ def full_annotation_of_credset(
             outdir = os.getcwd()
     if outdir == "":
         outdir = os.getcwd()
-    if os.path.exists(outfile):
-        print(f"\nAnnotation file {outfile} already exists")
+    if os.path.isfile(outfile) and os.path.getsize(outfile) > 0:
+        sys.stdout.write('\n')
+        sys.stdout.flush()
+        print(f"\t\t\t\t\tAnnotation file {outfile} already exists")
         return
+
     creds = pd.read_csv(path_to_credset, delim_whitespace=True, comment="#").dropna()
     if c95 == True:
         creds = create_95perc_credset(creds, prob_col)
@@ -1226,8 +1229,13 @@ def progress_bar(iterable, length=20):
         progress_length = int(length * percentage)
         elapsed_time = time.time() - start_time
 
-        sys.stdout.write('\033[K')  # Clear the line
-        sys.stdout.write(f"\r[{'=' * progress_length}{' ' * (length - progress_length)}] {progress}/{total} ({percentage:.1%}) - Locus processed in: {elapsed_time:.2f}s")
+        sys.stdout.write('\033[K')  # Clear the current line
+        sys.stdout.write(
+            f"\r\t\t\t\t"
+            f"[{'=' * progress_length}{' ' * (length - progress_length)}] "
+            f"{progress}/{total} ({percentage:.1%}) - "
+            f"Locus processed in: {elapsed_time:.2f}s"
+        )
         sys.stdout.flush()
     sys.stdout.write('\n')
 
@@ -1354,7 +1362,7 @@ def main(
                 c95,
             )
         )
-    print('             Starting_annotation:')
+    print('\t\t\t\tStarting_annotation:')
     for infile in progress_bar(infiles):
         full_annotation_of_credset(*infile)
     return

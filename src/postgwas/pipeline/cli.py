@@ -54,7 +54,8 @@ from postgwas.clis.common_cli import (
     get_magma_binary_parser,
     get_bcftools_binary_parser,
     get_plink_binary_parser,
-    sumstat_summary_arg_parser
+    sumstat_summary_arg_parser,
+    get_ld_clump_parser
 )
 
 def get_qc_parser():
@@ -109,7 +110,7 @@ MODULE_PARSERS = {
     "annot_ldblock": [get_defaultresourse_parser, get_inputvcf_parser, get_genomeversion_parser, get_common_out_parser, get_annot_ldblock_parser],
     "formatter": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_formatter_parser, get_bcftools_binary_parser],
     "finemap": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_finemap_method_parser, get_common_susie_arguments, get_bcftools_binary_parser],
-    "ld_clump": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_plink_binary_parser, get_bcftools_binary_parser],
+    "ld_clump": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_plink_binary_parser, get_bcftools_binary_parser,get_ld_clump_parser],
     "magma": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_common_magma_assoc_parser, get_magma_binary_parser, get_bcftools_binary_parser],
     "magmacovar": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_common_magma_assoc_parser, get_common_magma_covar_parser, get_magma_binary_parser, get_bcftools_binary_parser],
     "pops": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_common_pops_parser, get_common_magma_assoc_parser, get_common_magma_covar_parser, get_bcftools_binary_parser, get_magma_binary_parser],
@@ -300,7 +301,7 @@ def main():
         "imputation": ["vcf","sample_id","outdir","ref_ld","gwas2vcf_resource"],
         "formatter": ["vcf","sample_id","outdir"],
         "finemap": ["vcf","sample_id","outdir","ld-region-dir","finemap_ld_ref"],
-        "ld_clump": ["vcf", "genome-version","sample_id","outdir","ld-region-dir"],
+        "ld_clump": ["vcf", "genome-version","sample_id","outdir","ld-region-dir",'ld_clump_population'],
         "magma": ["vcf","sample_id","outdir","ld_ref","gene_loc_file"],
         "magmacovar": ["vcf","sample_id","outdir","ld_ref","gene_loc_file","covariates"],
         "pops": ["vcf","sample_id","outdir","ld_ref","feature_mat_prefix","pops_gene_loc_file"],

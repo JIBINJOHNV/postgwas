@@ -31,10 +31,6 @@ def run_formatter_direct(args, ctx=None):
     # -------------------------------------------------
     # Dependency checks (FAIL FAST)
     # -------------------------------------------------
-    outdir = Path(args.outdir)
-    downstream_dir = outdir / "4_downstream_inputs"
-    downstream_dir.mkdir(parents=True, exist_ok=True)
-
     selected_formats = args.format  # nargs="+"
 
     format_map = {

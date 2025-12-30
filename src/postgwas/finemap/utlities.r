@@ -1,108 +1,295 @@
 
+# You need to install once: install.packages("processx")
+library(processx)
 
-postgwas_ld_matrix <- function(variants,
-                            bfile,
-                            plink_bin,
-                            output_folder,
-                            tag,
-                            with_alleles = TRUE,
-                            logfile = NULL) {
+# Optional: if you want to use this version with timeout, install once:
+# install.packages("processx")
+# library(processx)  # Load only when using the timeout feature
+postgwas_ld_matrix <- function(
+  variants,
+  bfile,
+  plink_bin,
+  output_folder,
+  tag,
+  with_alleles = TRUE,
+  logfile = NULL,
+  timeout_seconds = 500
+) {
 
-        # -------------------------------------------------------
-        # Create output subfolder for LD
-        # -------------------------------------------------------
-        ld_dir <- file.path(output_folder, "ld_matrix_related")
-        dir.create(ld_dir, recursive = TRUE, showWarnings = FALSE)
+  # ---- guard: empty variants ----
+  if (length(variants) == 0) {
+    warning("LD skipped: no variants provided")
+    return(NULL)
+  }
 
-        # -------------------------------------------------------
-        # Create prefix (per-locus output files)
-        # -------------------------------------------------------
-        safe_tag <- gsub(":", "-", tag)
-        prefix <- file.path(ld_dir, paste0("ld_run_", safe_tag))
+  # -------------------------------------------------------
+  # Create output subfolder for LD
+  # -------------------------------------------------------
+  ld_dir <- file.path(output_folder, "ld_matrix_related")
+  dir.create(ld_dir, recursive = TRUE, showWarnings = FALSE)
 
-        # -------------------------------------------------------
-        # Logfile setup
-        # -------------------------------------------------------
-        if (is.null(logfile)) {
-        logfile <- file.path(ld_dir, "ld_matrix_local.log")
+  safe_tag <- gsub(":", "-", tag)
+  prefix <- file.path(ld_dir, paste0("ld_run_", safe_tag))
+
+  if (is.null(logfile)) {
+    logfile <- file.path(ld_dir, paste0("ld_run_", safe_tag, ".log"))
+  }
+  file.create(logfile)
+
+  # -------------------------------------------------------
+  # Write SNP list file
+  # -------------------------------------------------------
+  snp_list_file <- paste0(prefix, "_snplist.txt")
+  write.table(
+    data.frame(variants),
+    file = snp_list_file,
+    row.names = FALSE,
+    col.names = FALSE,
+    quote = FALSE
+  )
+
+  shell <- ifelse(Sys.info()[["sysname"]] == "Windows", "cmd", "sh")
+
+  # -------------------------------------------------------
+  # Helper: run PLINK safely
+  # -------------------------------------------------------
+  run_plink_safe <- function(cmd, step_name) {
+    if (requireNamespace("processx", quietly = TRUE)) {
+      res <- tryCatch(
+        processx::run(
+          "sh",
+          args = c("-c", cmd),
+          timeout = timeout_seconds,
+          error_on_status = TRUE
+        ),
+        error = function(e) {
+          warning(step_name, " failed: ", e$message,
+                  " | see log: ", logfile)
+          NULL
         }
-
-        file.create(logfile)   # Start clean or overwrite existing
-
-
-      # -------------------------------------------------------
-      # Write SNP list file
-      # -------------------------------------------------------
-      snp_list_file <- paste0(prefix, "_snplist.txt")
-      write.table(
-        data.frame(variants),
-        file = snp_list_file,
-        row.names = FALSE,
-        col.names = FALSE,
-        quote = FALSE
       )
-
-      # Detect OS for quoting rules
-      shell <- ifelse(Sys.info()[['sysname']] == "Windows", "cmd", "sh")
-
-      # -------------------------------------------------------
-      # PLINK call 1 → generate .bim (quiet)
-      # -------------------------------------------------------
-      fun1 <- paste0(
-        shQuote(plink_bin, type = shell),
-        " --bfile ", shQuote(bfile, type = shell),
-        " --extract ", shQuote(snp_list_file, type = shell),
-        " --make-just-bim ",
-        " --keep-allele-order ",
-        " --out ", shQuote(prefix, type = shell),
-        " >> ", shQuote(logfile), " 2>&1"
-      )
-
-      system(fun1)
-
-      # Read BIM produced by PLINK
-      bim <- read.table(paste0(prefix, ".bim"), stringsAsFactors = FALSE)
-
-      # -------------------------------------------------------
-      # PLINK call 2 → LD matrix (quiet)
-      # -------------------------------------------------------
-      fun2 <- paste0(
-        shQuote(plink_bin, type = shell),
-        " --bfile ", shQuote(bfile, type = shell),
-        " --extract ", shQuote(snp_list_file, type = shell),
-        " --r square ",
-        " --keep-allele-order ",
-        " --out ", shQuote(prefix, type = shell),
-        " >> ", shQuote(logfile), " 2>&1"
-      )
-
-      system(fun2)
-
-      # -------------------------------------------------------
-      # Read LD matrix
-      # -------------------------------------------------------
-      res <- as.matrix(read.table(paste0(prefix, ".ld"), header = FALSE))
-
-      # Add row/column names
-      if (with_alleles) {
-        rownames(res) <- colnames(res) <- paste(bim$V2, bim$V5, bim$V6, sep = "_")
-      } else {
-        rownames(res) <- colnames(res) <- bim$V2
+      return(!is.null(res))
+    } else {
+      status <- system(cmd)
+      if (status != 0) {
+        warning(step_name, " failed (exit=", status,
+                ") | see log: ", logfile)
+        return(FALSE)
       }
+      TRUE
+    }
+  }
 
-      # -------------------------------------------------------
-      # CLEANUP FILES
-      # -------------------------------------------------------
-      temp_files <- Sys.glob(paste0(prefix, "*"))
-      if (length(temp_files) > 0) {
-        unlink(temp_files)
-      }
+  # -------------------------------------------------------
+  # PLINK call 1 → generate .bim
+  # -------------------------------------------------------
+  fun1 <- paste0(
+    shQuote(plink_bin, type = shell),
+    " --bfile ", shQuote(bfile, type = shell),
+    " --extract ", shQuote(snp_list_file, type = shell),
+    " --make-just-bim ",
+    " --keep-allele-order ",
+    " --out ", shQuote(prefix, type = shell),
+    " >> ", shQuote(logfile), " 2>&1"
+  )
 
-      return(res)
+  if (!run_plink_safe(fun1, "PLINK .bim generation")) {
+    return(NULL)
+  }
+
+  bim_file <- paste0(prefix, ".bim")
+  if (!file.exists(bim_file) || file.size(bim_file) == 0) {
+    warning("PLINK produced no .bim file | see log: ", logfile)
+    return(NULL)
+  }
+
+  bim <- tryCatch(
+    read.table(bim_file, stringsAsFactors = FALSE),
+    error = function(e) {
+      warning("Failed to read .bim: ", e$message)
+      NULL
+    }
+  )
+  if (is.null(bim) || nrow(bim) == 0) {
+    warning("Empty .bim after PLINK | see log: ", logfile)
+    return(NULL)
+  }
+
+  # -------------------------------------------------------
+  # PLINK call 2 → LD matrix
+  # -------------------------------------------------------
+  fun2 <- paste0(
+    shQuote(plink_bin, type = shell),
+    " --bfile ", shQuote(bfile, type = shell),
+    " --extract ", shQuote(snp_list_file, type = shell),
+    " --r square ",
+    " --keep-allele-order ",
+    " --out ", shQuote(prefix, type = shell),
+    " >> ", shQuote(logfile), " 2>&1"
+  )
+
+  if (!run_plink_safe(fun2, "PLINK LD calculation")) {
+    return(NULL)
+  }
+
+  ld_file <- paste0(prefix, ".ld")
+  if (!file.exists(ld_file) || file.size(ld_file) == 0) {
+    warning("PLINK produced no LD file | see log: ", logfile)
+    return(NULL)
+  }
+
+  # -------------------------------------------------------
+  # Read LD matrix
+  # -------------------------------------------------------
+  res <- tryCatch(
+    as.matrix(read.table(ld_file, header = FALSE)),
+    error = function(e) {
+      warning("Failed to read LD matrix: ", e$message)
+      NULL
+    }
+  )
+  if (is.null(res)) {
+    return(NULL)
+  }
+
+  if (with_alleles) {
+    rownames(res) <- colnames(res) <- paste(bim$V2, bim$V5, bim$V6, sep = "_")
+  } else {
+    rownames(res) <- colnames(res) <- bim$V2
+  }
+
+  # -------------------------------------------------------
+  # Cleanup
+  # -------------------------------------------------------
+  unlink(Sys.glob(paste0(prefix, "*")), force = TRUE)
+
+  res
+}
+
+
+run_susie_hard_timeout <- function(
+  z, R, n, L, max_iter,
+  timeout_s,
+  tag,
+  log_msg,
+  susie_verbose = TRUE
+) {
+  # Absolute safety net — nothing escapes this function
+  tryCatch({
+
+    stopifnot(requireNamespace("processx", quietly = TRUE))
+
+    tmp_input  <- tempfile(paste0("susie_input_", tag, "_"), fileext = ".rds")
+    tmp_output <- tempfile(paste0("susie_out_",   tag, "_"), fileext = ".rds")
+    tmp_script <- tempfile(paste0("susie_run_",   tag, "_"), fileext = ".R")
+
+    tmp_stdout <- tempfile(paste0("susie_stdout_", tag, "_"), fileext = ".log")
+    tmp_stderr <- tempfile(paste0("susie_stderr_", tag, "_"), fileext = ".log")
+
+    on.exit({
+      unlink(
+        c(tmp_input, tmp_output, tmp_script, tmp_stdout, tmp_stderr),
+        force = TRUE
+      )
+    }, add = TRUE)
+
+    saveRDS(list(
+      z = z,
+      R = R,
+      n = n,
+      L = L,
+      max_iter = max_iter,
+      susie_verbose = susie_verbose
+    ), tmp_input)
+
+    writeLines(c(
+      "suppressPackageStartupMessages(library(susieR))",
+      sprintf("inp <- readRDS(%s)", deparse(tmp_input)),
+      "fit <- susieR::susie_rss(",
+      "  z = inp$z,",
+      "  R = inp$R,",
+      "  n = inp$n,",
+      "  L = inp$L,",
+      "  max_iter = inp$max_iter,",
+      "  return_correlation = TRUE,",
+      "  verbose = inp$susie_verbose",
+      ")",
+      sprintf("saveRDS(fit, %s)", deparse(tmp_output))
+    ), tmp_script)
+
+    log_msg(
+      "SuSiE START | p=", length(z),
+      " L=", L,
+      " max_iter=", max_iter,
+      " n_eff=", round(n, 2),
+      " timeout=", timeout_s, "s"
+    )
+
+    rscript <- Sys.which("Rscript")
+    if (!nzchar(rscript)) {
+      log_msg("❌ SuSiE FAILED: Rscript not found in PATH")
+      return(NULL)
     }
 
+    t0 <- Sys.time()
 
+    px <- processx::process$new(
+      command = rscript,
+      args = c("--vanilla", tmp_script),
+      stdout = tmp_stdout,
+      stderr = tmp_stderr,
+      cleanup = TRUE
+    )
 
+    repeat {
+      if (!px$is_alive()) break
+
+      if (as.numeric(difftime(Sys.time(), t0, units = "secs")) > timeout_s) {
+        log_msg("❌ SuSiE HARD TIMEOUT → terminating PID ", px$get_pid())
+
+        try(px$terminate(), silent = TRUE)
+        Sys.sleep(0.5)
+
+        if (px$is_alive()) {
+          log_msg("❌ SuSiE still alive → killing PID ", px$get_pid())
+          try(px$kill(), silent = TRUE)
+        }
+
+        return(NULL)
+      }
+
+      Sys.sleep(0.25)
+    }
+
+    elapsed <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 2)
+    log_msg("SuSiE FINISHED in ", elapsed, "s")
+
+    if (!file.exists(tmp_output)) {
+      log_msg("❌ SuSiE FAILED: no output produced")
+
+      if (file.size(tmp_stderr) > 0) {
+        err <- readLines(tmp_stderr, warn = FALSE)
+        log_msg("SuSiE stderr (tail):\n", paste(tail(err, 50), collapse = "\n"))
+      }
+
+      return(NULL)
+    }
+
+    fit <- readRDS(tmp_output)
+
+    if (!inherits(fit, "susie") || !isTRUE(fit$converged)) {
+      log_msg("❌ SuSiE FAILED: did not converge")
+      return(NULL)
+    }
+
+    fit
+
+  }, error = function(e) {
+    # This guarantees the worker NEVER dies
+    log_msg("❌ SuSiE INTERNAL ERROR: ", conditionMessage(e))
+    NULL
+  })
+}
 
 annotate_susie <- function(
   fitted,

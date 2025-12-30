@@ -16,7 +16,7 @@ def run_ld_clump_direct(args, ctx=None):
             sumstat_vcf=args.vcf,
             output_folder=args.outdir,
             sample_name=args.sample_id,
-            population=args.population,
+            population=args.ld_clump_population,
             nthreads=args.nthreads,
             bcftools=args.bcftools
         )

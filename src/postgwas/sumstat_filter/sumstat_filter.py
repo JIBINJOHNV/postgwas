@@ -42,8 +42,12 @@ def filter_gwas_vcf_bcftools(
     # ============================================================
     # Create log directory + log buffer
     # ============================================================
-    log_dir = Path(output_folder) / "logs"
+    step_dir = Path(output_folder)
+    step_dir.mkdir(parents=True, exist_ok=True)
+
+    log_dir = step_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
+
     log_file = log_dir / f"{output_prefix}_filter_gwas_vcf_bcftools.log"
 
     log_buffer = io.StringIO()

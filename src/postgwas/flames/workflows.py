@@ -3,6 +3,8 @@ import argparse
 from pathlib import Path
 import sys
 import pandas as pd
+import time
+
 
 def run_flames_direct(args):
     """
@@ -99,9 +101,37 @@ def run_flames_direct(args):
         --prob_col "{prob_col}" \
         --SNP_col "{snp_col}"
     """
-
     print("             🔥 Running FLAMES annotation…")
-    subprocess.run(cmd_annot, shell=True, check=True)
+
+    MAX_RETRIES = 10          # total attempts
+    RETRY_SLEEP = 150        # seconds (2 minutes)
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            subprocess.run(cmd_annot, shell=True, check=True)
+            break  # ✅ success → exit loop
+
+        except subprocess.CalledProcessError:
+            print(
+                f"⚠️  FLAMES annotation failed "
+                f"(attempt {attempt}/{MAX_RETRIES}).\n"
+                f"    Retrying in {RETRY_SLEEP // 60} minutes… "
+                f"(likely temporary VEP / network issue)\n\n"
+                "👉 Suggested fix:\n"
+                "   Re-run FLAMES using local tools instead of APIs:\n"
+                "     --cmd-vep --vep-cache\n"
+                "     --CADD_file <path> --tabix <path>\n\n"
+                "   This avoids VEP / CADD server outages and is recommended\n"
+                "   for large or long-running analyses.\n"
+            )
+
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_SLEEP)
+            else:
+                print(
+                    "❌ All retries exhausted. Exiting pipeline.\n"
+                )
+                raise
 
     # ==============================================================
     # STEP 2 — FLAMES scoring

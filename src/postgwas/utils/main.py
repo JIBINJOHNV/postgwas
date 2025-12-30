@@ -558,7 +558,7 @@ def detect_total_memory_gb():
 def decide_magma_batches_from_annot(
     annot_file: str,
     min_genes_per_batch: int = 1000,
-    ram_per_cpu_gb: int = 8,
+    ram_per_cpu_gb: int = 16,
 ):
     """
     Decide MAGMA batch count using:
