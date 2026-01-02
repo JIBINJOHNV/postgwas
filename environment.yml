@@ -196,6 +196,5 @@ dependencies:
       - wcwidth==0.2.14
       - zipp==3.20.2
       - polars-lts-cpu==0.20.31
-      - omnipath
       - git+https://github.com/bioinformed/vgraph.git
 prefix: /Users/JJOHN41/miniconda3/envs/postgwas

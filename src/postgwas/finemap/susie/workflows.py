@@ -8,7 +8,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
 # SuSiE backend (Python) ---------------------
-from postgwas.finemap.main import (
+from postgwas.finemap.susie.main import (
     validate_locus_file,
     run_susie,
 )
@@ -149,7 +149,7 @@ def run_susie_worker(
 
     return run_susie(
         locus_file=locus_chunk,                     # 🔑 CHUNKED LOCUS FILE
-        sumstat_file=args.finemap_input_file,
+        sumstat_file=args.susie_input_file,
         sample_id=args.sample_id,
         ld_ref=args.finemap_ld_ref,
         plink=args.plink,

@@ -112,13 +112,13 @@ def get_formatter_parser():
 
     group.add_argument(
         "--format",
-        choices=["magma", "finemap", "ldpred", "ldsc"],
+        choices=["magma", "finemap_susie","finemap_finemap", "ldpred", "ldsc"],
         nargs="+",
         required=True,
-        metavar="{magma, finemap, ldpred, ldsc}",
+        metavar=" ",
         help=(
             "[bold bright_red]Required[/bold bright_red]: Choose one or more "
-            "output formats for conversion."
+            "output formats for conversion. choices are magma, finemap_susie,finemap_finemap,ldpred, ldsc.\n"
         ),
     )
 
@@ -232,29 +232,6 @@ def safe_parse_args(top_parser):
         # If no mode provided → show top-level help
         top_parser.print_help()
         sys.exit(1)
-
-
-# =========================================================
-# METHOD SELECTOR
-# =========================================================
-def get_finemap_method_parser(add_help=False):
-    """
-    Create an argument parser for selecting the fine-mapping method.
-    This helper is designed to be used as a parent parser in other CLIs.
-    """
-    parser = argparse.ArgumentParser(add_help=add_help)
-    grp = parser.add_argument_group("Fine-mapping Engine Selection")
-    grp.add_argument(
-        "--finemap_method",
-        choices=["susie", "finemap"],
-        default="susie",
-        help=(
-            "Fine-mapping method to use. "
-            "[bold]Choices:[/bold] [bright_yellow]{susie, finemap}[/bright_yellow]. "
-            "[bold green]Default:[/bold green] [cyan]susie[/cyan]"
-        ),
-    )
-    return parser
 
 
 
@@ -483,162 +460,6 @@ def get_common_magma_covar_parser(add_help=False):
 
 
 
-def get_common_susie_arguments(add_help=False):
-    """
-    Add SuSiE tuning arguments. 
-    Arguments are added directly to the 'susie' group object to force 
-    them to appear under the SuSiE heading in the help menu.
-    """
-    parser = argparse.ArgumentParser(
-        add_help=add_help,
-        formatter_class=RichHelpFormatter,
-    )
-
-    # All arguments added to this group WILL stay under this heading
-    susie = parser.add_argument_group("SuSiE Fine-Mapping Arguments")
-
-    # ------------------------------------------------------------------
-    # Locus selection / SuSiE tuning
-    # ------------------------------------------------------------------
-    susie.add_argument(
-        "--lp_threshold",
-        type=float,
-        default=7.3,
-        metavar="",
-        help=(
-            "Minus log10(P) threshold used to include a locus for fine-mapping. "
-            "The locus file must contain an LP column representing −log10(P) values. "
-            "[bold green]Default:[/bold green] [cyan]7.3[/cyan]"
-        ),
-    )
-
-    susie.add_argument(
-        "--L",
-        type=int,
-        default=10,
-        metavar="",
-        help=(
-            "Maximum number of SuSiE credible sets per locus. "
-            "Increasing this may increase runtime and memory usage. "
-            "[bold green]Default:[/bold green] [cyan]10[/cyan]"
-        ),
-    )
-
-    # ------------------------------------------------------------------
-    # Resource / timeout controls
-    # ------------------------------------------------------------------
-    susie.add_argument(
-        "--min_ram_per_worker_gb",
-        type=int,
-        default=10,
-        metavar=" ",
-        help=(
-            "Minimum RAM (in GB) reserved per worker when running fine-mapping "
-            "in parallel. Used for auto-detecting optimal worker count. "
-            "[bold green]Default:[/bold green] [cyan]4[/cyan]"
-        ),
-    )
-
-    susie.add_argument(
-        "--timeout_ld_seconds",
-        type=int,
-        default=180,
-        metavar=" ",
-        help=(
-            "Maximum time (in seconds) allowed for PLINK LD-matrix computation "
-            "per locus. Execution aborts for loci exceeding this limit. "
-            "[bold green]Default:[/bold green] [cyan]180[/cyan]"
-        ),
-    )
-
-    susie.add_argument(
-        "--timeout_susie_seconds",
-        type=int,
-        default=180,
-        metavar=" ",
-        help=(
-            "Maximum time (in seconds) allowed for SuSiE model fitting per locus. "
-            "Loci exceeding the limit are skipped with a warning. "
-            "[bold green]Default:[/bold green] [cyan]180[/cyan]"
-        ),
-    )
-
-    # ------------------------------------------------------------------
-    # MHC handling (Added DIRECTLY to susie group)
-    # ------------------------------------------------------------------
-    susie.add_argument(
-        "--finemap_skip_mhc",
-        action="store_true",
-        help=(
-            "Skip the extended MHC region (chr6:25–35Mb). "
-            "[bold green]Default[/bold green]"
-        ),
-    )
-
-    susie.add_argument(
-        "--finemap_include_mhc",
-        action="store_true",
-        help=(
-            "Include the extended MHC region (chr6:25–35Mb). "
-            "Overrides the default skip behavior."
-        ),
-    )
-
-    susie.add_argument(
-        "--finemap_mhc_chrom",
-        type=int,
-        default=6,
-        metavar="INT",
-        help=(
-            "Chromosome containing the MHC region to skip during fine-mapping "
-            "(used unless --finemap_include_mhc is set). "
-            "[bold green]Default:[/bold green] [cyan]6[/cyan]"
-        ),
-    )
-
-    susie.add_argument(
-        "--finemap_mhc_start",
-        type=int,
-        default=25000000,
-        metavar=" ",
-        help=(
-            "Start coordinate for the MHC region to skip "
-            "(used unless --finemap_include_mhc is set). "
-            "[bold green]Default:[/bold green] [cyan]25,000,000[/cyan]"
-        ),
-    )
-
-    susie.add_argument(
-        "--finemap_mhc_end",
-        type=int,
-        default=35000000,
-        metavar=" ",
-        help=(
-            "End coordinate for the MHC region to skip "
-            "(used unless --finemap_include_mhc is set). "
-            "[bold green]Default:[/bold green] [cyan]35,000,000[/cyan]"
-        ),
-    )
-
-    # ------------------------------------------------------------------
-    # LD reference
-    # ------------------------------------------------------------------
-    susie.add_argument(
-        "--finemap_ld_ref",
-        metavar=" ",
-        help=(
-            "[bold bright_red]Required[/bold bright_red]: Prefix of the PLINK LD "
-            "reference panel (e.g., 1000G EUR). Should correspond to files: "
-            "PREFIX.bed, PREFIX.bim, PREFIX.fam. This reference panel is used "
-            "to compute LD matrices per locus. "
-            "[bold green]Default:[/bold green] [cyan]None[/cyan]"
-        ),
-    )
-
-    # Set the default global state
-    parser.set_defaults(finemap_skip_mhc=True)
-
-    return parser
     
 def get_common_magma_assoc_parser(add_help=False):
     """

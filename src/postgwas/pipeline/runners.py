@@ -21,7 +21,7 @@ from postgwas.annot_ldblock.workflows import run_annot_ldblock
 from postgwas.formatter.workflows import run_formatter_direct
 from postgwas.sumstat_filter.workflows import run_sumstat_filter_direct
 from postgwas.imputation.workflows import run_sumstat_imputation_direct
-from postgwas.finemap.workflows import run_parallel_susie
+from postgwas.finemap.susie.workflows import run_parallel_susie
 from postgwas.ld_clump.workflows import run_ld_clump_direct
 from postgwas.gene_assoc.workflows import run_magma_direct
 from postgwas.magmacovar.workflows import run_magma_covar_direct
@@ -224,7 +224,8 @@ def run_formatter_runner(args, ctx):
     if any(m in active_modules for m in ["magma", "magmacovar", "pops", "flames"]):
         active_formats.add("magma")
     if "finemap" in active_modules or "flames" in active_modules:
-        active_formats.add("finemap")
+        active_formats.add("finemap_susie")
+        active_formats.add("finemap_finemap")
 
     args.format = list(active_formats)
 
@@ -289,15 +290,15 @@ def run_ld_clump_runner(args, ctx):
 def run_finemap_runner(args, ctx):
     root = setup_subdir(args, "finemap")
 
-    args.finemap_input_file = ctx["formatter"]["finemap"]["susie_input"]
-    args.locus_file = ctx["ld_clump"]["ldpruned_sig_file"]
-
-    try:
-        outputs = run_parallel_susie(args)
-        ctx["finemap"] = outputs
-        return outputs
-    finally:
-        args.outdir = root
+    if args.finemap_method=="susie":
+        args.susie_input_file = ctx["formatter"]["finemap_susie"]["susie_input"]
+        args.locus_file = ctx["ld_clump"]["ldpruned_sig_file"]
+        try:
+            outputs = run_parallel_susie(args)
+            ctx["finemap"] = outputs
+            return outputs
+        finally:
+            args.outdir = root
 
 
 def run_magma_runner(args, ctx):

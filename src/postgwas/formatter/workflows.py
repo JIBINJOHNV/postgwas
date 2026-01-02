@@ -9,7 +9,8 @@ from postgwas.utils.main import run_cmd,require_executable
 # ---- Formatter engines ----
 from postgwas.formatter.main import (
     create_magma_inputs,
-    create_finemap_inputs,
+    create_finemap_susie_inputs,
+    create_finemap_finemap_inputs,
     create_ldpred_inputs,
     create_ldsc_inputs
 )
@@ -35,14 +36,16 @@ def run_formatter_direct(args, ctx=None):
 
     format_map = {
         "magma": create_magma_inputs,
-        "finemap": create_finemap_inputs,
+        "finemap_susie": create_finemap_susie_inputs,
+        "finemap_finemap": create_finemap_finemap_inputs,
         "ldpred": create_ldpred_inputs,
         "ldsc": create_ldsc_inputs,
     }
 
     outputs = {
         "magma": {},
-        "finemap": {},
+        "finemap_susie": {},
+        "finemap_finemap": {},
         "ldsc": {},
         "ldpred": {},
     }

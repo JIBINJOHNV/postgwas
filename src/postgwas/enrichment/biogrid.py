@@ -1,39 +1,64 @@
+import os
+import io
 import requests
 import pandas as pd
-import io
+from pathlib import Path
 
-def fetch_biogrid_interactions(gene_list, access_key, tax_id=9606):
+
+
+def fetch_biogrid_interactions(
+    gene_list,
+    access_key,
+    tax_id=9606,
+    output_dir=None,
+    sample_id=None,
+    save=True,
+):
     """
-    Fetches physical interactions from BioGRID for a list of genes.
+    Fetch physical interactions from BioGRID for a list of genes.
     Args:
         gene_list (list): List of gene symbols (e.g., ['TP53', 'BRCA1'])
-        access_key (str): Your BioGRID API Key.
-        tax_id (int): 9606 = Human, 10090 = Mouse.
+        access_key (str): BioGRID API key
+        tax_id (int): 9606 = Human, 10090 = Mouse
+        output_dir (str | Path | None): Directory to save output TSV
+        sample_id (str | None): Sample or dataset identifier used in filename
+        save (bool): Whether to save results to disk
+
+    Returns:
+        pd.DataFrame: BioGRID interaction table
     """
     base_url = "https://webservice.thebiogrid.org/interactions/"
-    # BioGRID expects genes separated by pipes (|)
     genes_query = "|".join(gene_list)
     params = {
         "accesskey": access_key,
         "geneList": genes_query,
         "taxId": tax_id,
-        "searchNames": "true",      # Allow using Symbols instead of IDs
-        "includeHeader": "true",    # Needed for pandas to read columns
-        "throughputTag": "any",     # 'high', 'low', or 'any'
-        "format": "tab2"            # Tab-delimited format is easiest for Pandas
+        "searchNames": "true",
+        "includeHeader": "true",
+        "throughputTag": "any",
+        "format": "tab2",
     }
     try:
-        print(f"Querying BioGRID for {len(gene_list)} genes...")
-        response = requests.get(base_url, params=params)
+        print(f"🔍 Querying BioGRID for {len(gene_list)} genes…")
+        response = requests.get(base_url, params=params, timeout=60)
         response.raise_for_status()
-        # BioGRID returns a TSV string
-        # We wrap it in StringIO so pandas can read it like a file
-        data_io = io.StringIO(response.text)
-        df = pd.read_csv(data_io, sep="\t")
+        df = pd.read_csv(io.StringIO(response.text), sep="\t")
+        # ---------------------------------------------------------
+        # Save output (optional)
+        # ---------------------------------------------------------
+        if save and output_dir is not None:
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            if sample_id is None:
+                sample_id = "biogrid"
+            out_file = output_dir / f"{sample_id}_biogrid_interactions.tsv"
+            df.to_csv(out_file, sep="\t", index=False)
+            print(f"💾 BioGRID interactions saved to: {out_file}")
         return df
     except Exception as e:
-        print(f"BioGRID Request Failed: {e}")
+        print(f"❌ BioGRID request failed: {e}")
         return pd.DataFrame()
+
 
 # --- Main Execution ---
 if __name__ == "__main__":

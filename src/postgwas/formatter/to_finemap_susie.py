@@ -8,7 +8,7 @@ import subprocess
 import textwrap
 
 
-def vcf_to_finemap(sumstat_vcf: str, output_folder: str, sample_name: str):
+def vcf_to_finemap_susie(sumstat_vcf: str, output_folder: str, sample_name: str):
     """
     Convert a single summary-statistics VCF file into a FINEMAP-compatible
     tab-delimited text file.
@@ -32,10 +32,10 @@ def vcf_to_finemap(sumstat_vcf: str, output_folder: str, sample_name: str):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Output file
-    output_file = output_dir / f"{sample_name}_finemap.tsv"
+    output_file = output_dir / f"{sample_name}_finemap_susie.tsv"
 
     # Log file (prefix + function name)
-    log_file = output_dir / f"{sample_name}_vcf_to_finemap.log"
+    log_file = output_dir / f"{sample_name}_vcf_to_finemap_susie.log"
 
     # Build bcftools → query → sed pipeline
     cmd = textwrap.dedent(f"""

@@ -40,8 +40,6 @@ from postgwas.clis.common_cli import (
     get_common_out_parser,
     get_common_sumstat_filter_parser,
     get_formatter_parser,
-    get_finemap_method_parser,
-    get_common_susie_arguments,
     get_plink_binary_parser,
     get_common_magma_assoc_parser,
     get_common_magma_covar_parser,
@@ -56,6 +54,11 @@ from postgwas.clis.common_cli import (
     get_plink_binary_parser,
     sumstat_summary_arg_parser,
     get_ld_clump_parser
+)
+from postgwas.clis.finemap_cli import (
+    get_finemap_common_parser,
+    get_common_susie_arguments,
+    get_common_finemap_finemap_arguments
 )
 
 def get_qc_parser():
@@ -109,7 +112,7 @@ MODULE_PARSERS = {
     "harmonisation": [],
     "annot_ldblock": [get_defaultresourse_parser, get_inputvcf_parser, get_genomeversion_parser, get_common_out_parser, get_annot_ldblock_parser],
     "formatter": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_formatter_parser, get_bcftools_binary_parser],
-    "finemap": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_finemap_method_parser, get_common_susie_arguments, get_bcftools_binary_parser],
+    "finemap": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_finemap_common_parser, get_common_susie_arguments,get_common_finemap_finemap_arguments, get_bcftools_binary_parser],
     "ld_clump": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_plink_binary_parser, get_bcftools_binary_parser,get_ld_clump_parser],
     "magma": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_common_magma_assoc_parser, get_magma_binary_parser, get_bcftools_binary_parser],
     "magmacovar": [get_defaultresourse_parser, get_inputvcf_parser, get_common_out_parser, get_common_magma_assoc_parser, get_common_magma_covar_parser, get_magma_binary_parser, get_bcftools_binary_parser],

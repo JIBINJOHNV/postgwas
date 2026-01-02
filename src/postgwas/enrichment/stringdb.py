@@ -1,130 +1,293 @@
 import requests
 import pandas as pd
-import io
-import requests
-import pandas as pd
 import networkx as nx
+from pathlib import Path
 import matplotlib.pyplot as plt
 
 
-def get_string_ids(gene_list, species=9606):
-    """
-    Maps gene symbols to STRING protein IDs.
-    Species 9606 is Human.
-    """
+__all__ = [
+    "run_stringdb_analysis",
+    "get_string_ids",
+    "run_string_enrichment",
+    "get_string_ppi_network",
+    "get_network_image",
+    "analyze_hubs",
+    "graph_to_hub_dataframe",
+]
+
+
+def graph_to_hub_dataframe(G: nx.Graph) -> pd.DataFrame:
+    """Convert a NetworkX graph with node attributes into a DataFrame."""
+    rows = []
+    for node, attrs in G.nodes(data=True):
+        row = {"Gene": node}
+        row.update(attrs)  # degree, betweenness, closeness, etc.
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def get_string_ids(gene_list, species: int = 9606):
+    """Map gene symbols to STRING protein IDs."""
     url = "https://string-db.org/api/json/get_string_ids"
     params = {
         "identifiers": "\r".join(gene_list),
         "species": species,
-        "limit": 1,  # Map to the best single hit per gene
-        "echo_query": 1
+        "limit": 1,
+        "echo_query": 1,
     }
     try:
-        response = requests.post(url, data=params)
+        response = requests.post(url, data=params, timeout=60)
         response.raise_for_status()
         data = response.json()
-        # STRING returns a list of dicts. We want the 'stringId'
-        mapped_ids = []
-        for item in data:
-            mapped_ids.append(item['stringId'])
-        return list(set(mapped_ids)) # Remove duplicates
+        mapped_ids = [item["stringId"] for item in data if "stringId" in item]
+        return sorted(set(mapped_ids))
     except Exception as e:
-        print(f"Mapping Error: {e}")
+        print(f"❌ STRING ID mapping failed: {e}")
         return []
 
-def run_string_enrichment(string_ids, species=9606):
-    """
-    Performs functional enrichment on the mapped STRING IDs.
-    """
+
+def run_string_enrichment(string_ids, species: int = 9606) -> pd.DataFrame:
+    """Perform functional enrichment on mapped STRING IDs."""
     url = "https://string-db.org/api/json/enrichment"
-    params = {
-        "identifiers": "\r".join(string_ids),
-        "species": species
-    }
+    params = {"identifiers": "\r".join(string_ids), "species": species}
     try:
-        response = requests.post(url, data=params)
+        response = requests.post(url, data=params, timeout=60)
         response.raise_for_status()
-        data = response.json()
-        return pd.DataFrame(data)
+        return pd.DataFrame(response.json())
     except Exception as e:
-        print(f"Enrichment Error: {e}")
+        print(f"❌ STRING enrichment failed: {e}")
         return pd.DataFrame()
 
-def get_network_image(string_ids, species=9606, filename="string_network.png"):
+
+def get_network_image(
+    string_ids,
+    species: int = 9606,
+    output_dir=None,
+    sample_id=None,
+    filename=None,
+    image_format: str = "svg",   # "svg" (best) or "png"
+    overwrite: bool = False,
+):
     """
-    Downloads the static network image for the provided genes.
+    Download a static STRING network image (SVG recommended).
+    Returns Path to saved image, or None on failure.
     """
-    url = "https://string-db.org/api/image/network"
+    fmt = image_format.lower()
+    if fmt not in {"svg", "png"}:
+        raise ValueError("image_format must be 'svg' or 'png'")
+
+    # STRING endpoints:
+    # PNG -> /api/image/network
+    # SVG -> /api/svg/network
+    endpoint = "svg" if fmt == "svg" else "image"
+    url = f"https://string-db.org/api/{endpoint}/network"
+
     params = {
         "identifiers": "\r".join(string_ids),
         "species": species,
-        "add_white_nodes": 0,      # Don't add extra proteins
-        "network_flavor": "evidence", # 'evidence' or 'confidence' lines
-        "hide_disconnected_nodes": 1  # Clean up the plot
+        "add_white_nodes": 0,
+        "network_flavor": "evidence",
+        "hide_disconnected_nodes": 1,
     }
+
     try:
-        print("Downloading network image...")
-        response = requests.post(url, data=params)
+        #print(f"🖼️ Downloading STRING network image ({fmt.upper()})…")
+        response = requests.post(url, data=params, timeout=60)
         response.raise_for_status()
-        with open(filename, 'wb') as f:
+
+        output_dir = Path(output_dir) if output_dir else Path(".")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        if filename:
+            out_path = output_dir / filename
+        else:
+            base = sample_id or "string_network"
+            out_path = output_dir / f"{base}_string_network.{fmt}"
+
+        # avoid overwriting unless explicitly allowed
+        if out_path.exists() and not overwrite:
+            stem, suffix = out_path.stem, out_path.suffix
+            i = 1
+            while True:
+                candidate = output_dir / f"{stem}_v{i}{suffix}"
+                if not candidate.exists():
+                    out_path = candidate
+                    break
+                i += 1
+
+        with open(out_path, "wb") as f:
             f.write(response.content)
-        print(f"Network image saved to: {filename}")
+
+        #print(f"💾 Network image saved to: {out_path}")
+        return out_path
+
     except Exception as e:
-        print(f"Image Download Error: {e}")
+        print(f"\t\t\t\t❌ STRING image download failed: {e}")
+        return None
 
 
-def get_string_ppi_network(gene_list, species=9606, score_threshold=400):
-    """
-    Fetches protein-protein interactions from STRING-DB.
-    Args:
-        gene_list (list): List of gene symbols.
-        species (int): 9606 for Human, 10090 for Mouse.
-        score_threshold (int): Minimum confidence score (0-1000). 
-                               400 = Medium, 700 = High, 900 = Highest.
-    """
+def get_string_ppi_network(gene_list, species: int = 9606, score_threshold: int = 400) -> pd.DataFrame:
+    """Fetch PPI interactions from STRING (edge list)."""
     url = "https://string-db.org/api/json/network"
     params = {
-        "identifiers": "%0d".join(gene_list),  # Join with newline for API
+        "identifiers": "%0d".join(gene_list),
         "species": species,
-        "required_score": score_threshold
+        "required_score": score_threshold,
     }
     try:
-        print(f"Fetching PPI network for {len(gene_list)} genes...")
-        response = requests.post(url, data=params)
+        #print(f"\t\t\t\tFetching PPI network for {len(gene_list)} genes...")
+        response = requests.post(url, data=params, timeout=60)
         response.raise_for_status()
         data = response.json()
         if not data:
-            print("No interactions found.")
             return pd.DataFrame()
-        # Convert to DataFrame
-        # STRING returns: 'preferredName_A', 'preferredName_B', 'score', etc.
+
         df = pd.DataFrame(data)
-        # Select relevant columns: Protein A, Protein B, Confidence Score
-        # preferredName_A = Source, preferredName_B = Target
-        df_clean = df[['preferredName_A', 'preferredName_B', 'score', 'nscore', 'fscore', 'pscore', 'ascore', 'escore', 'dscore', 'tscore']]
-        # Rename for clarity
-        df_clean.columns = ['Source', 'Target', 'Total_Score', 'Neighborhood', 'Fusion', 'Cooccurrence', 'Coexpression', 'Experimental', 'Database', 'TextMining']
+
+        needed = [
+            "preferredName_A", "preferredName_B", "score",
+            "nscore", "fscore", "pscore", "ascore", "escore", "dscore", "tscore"
+        ]
+        df_clean = df[needed].copy()
+
+        df_clean = df_clean.rename(columns={
+            "preferredName_A": "Source",
+            "preferredName_B": "Target",
+            "score": "Total_Score",
+            "nscore": "neighborhood_score",
+            "fscore": "fusion_score",
+            "pscore": "cooccurence_score",
+            "ascore": "coexpression_score",
+            "escore": "experimental_score",
+            "dscore": "database_score",
+            "tscore": "textmining_score",
+        })
         return df_clean
+
     except Exception as e:
-        print(f"Error fetching network: {e}")
+        print(f"❌ Error fetching STRING PPI: {e}")
         return pd.DataFrame()
 
-def analyze_hubs(df_interactions):
-    """
-    Uses NetworkX to find the most connected proteins (Hubs).
-    """
-    if df_interactions.empty:
-        return
-    # 1. Build Graph
-    G = nx.from_pandas_edgelist(df_interactions, 'Source', 'Target', ['Total_Score'])
-    # 2. Calculate Degree Centrality (Number of connections)
-    degrees = dict(G.degree())
-    # Sort by connections
-    sorted_degrees = sorted(degrees.items(), key=lambda item: item[1], reverse=True)
-    print("\n=== TOP 5 HUB GENES (Most Connected) ===")
-    for gene, degree in sorted_degrees[:5]:
-        print(f"{gene}: {degree} interactions")
+
+def analyze_hubs(df_ppi: pd.DataFrame) -> nx.Graph:
+    """Build graph and compute node metrics."""
+    G = nx.from_pandas_edgelist(df_ppi, source="Source", target="Target", edge_attr=True)
+    nx.set_node_attributes(G, dict(G.degree()), "degree")
+    nx.set_node_attributes(G, nx.betweenness_centrality(G), "betweenness")
+    nx.set_node_attributes(G, nx.closeness_centrality(G), "closeness")
     return G
+
+
+def run_stringdb_analysis(
+    gene_list,
+    output_dir=None,
+    sample_id=None,
+    score_threshold: int = 400,
+    plot_network: bool = True,
+):
+    """
+    Run STRING enrichment + PPI + hubs + save outputs.
+    Returns dict with dataframes/graph/paths.
+    """
+    output_dir = Path(output_dir) if output_dir else Path(".")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sample_id = sample_id or "string"
+
+    #print(f"\t\t\t\t🧬 Total Input genes: {len(gene_list)}")
+
+    results = {
+        "string_ids": [],
+        "enrichment": None,
+        "ppi": None,
+        "graph": None,
+        "network_image": None,
+        "network_plot": None,
+        "hub_table": None,
+    }
+
+    # 1) IDs
+    mapped_ids = get_string_ids(gene_list)
+    if not mapped_ids:
+        print("❌ No genes could be mapped to STRING IDs.")
+        return results
+
+    #print(f"✅ Successfully mapped {len(mapped_ids)} proteins.")
+    results["string_ids"] = mapped_ids
+
+    # 2) Enrichment
+    df_enrich = run_string_enrichment(mapped_ids)
+    if isinstance(df_enrich, pd.DataFrame) and not df_enrich.empty:
+        # fdr is usually present; guard just in case
+        if "fdr" in df_enrich.columns:
+            df_enrich = df_enrich.sort_values(by="fdr")
+        enrich_file = output_dir / f"{sample_id}_stringdb_enrichment.tsv"
+        df_enrich.to_csv(enrich_file, sep="\t", index=False)
+        #print(f"💾 Enrichment saved to: {enrich_file}")
+        results["enrichment"] = df_enrich
+    else:
+        print("\t\t\t\tℹ️ No enrichment results returned.")
+
+    # 3) STRING network image (best quality: SVG)
+    img_path = get_network_image(
+        mapped_ids,
+        output_dir=output_dir,
+        sample_id=sample_id,
+        image_format="svg",
+    )
+    results["network_image"] = img_path
+
+    # 4) PPI
+    df_ppi = get_string_ppi_network(gene_list, score_threshold=score_threshold)
+    if df_ppi.empty:
+        #print("ℹ️ No STRING interactions returned.")
+        return results
+
+    ppi_file = output_dir / f"{sample_id}_stringdb_interactions.tsv"
+    df_ppi.to_csv(ppi_file, sep="\t", index=False)
+    #print(f"💾 PPI network saved to: {ppi_file}")
+    results["ppi"] = df_ppi
+
+    # 5) Hubs
+    G = analyze_hubs(df_ppi)
+    results["graph"] = G
+
+    df_hubs = graph_to_hub_dataframe(G)
+    if "degree" in df_hubs.columns:
+        df_hubs = df_hubs.sort_values(by="degree", ascending=False)
+
+    hub_file = output_dir / f"{sample_id}_stringdb_ppi_hub_analysis.tsv"
+    df_hubs.to_csv(hub_file, sep="\t", index=False)
+    #print(f"💾 Hub analysis saved to: {hub_file}")
+    results["hub_table"] = hub_file
+
+    # 6) Plot (save as SVG)
+    if plot_network and G.number_of_nodes() > 0:
+        plt.figure(figsize=(8, 8))
+        pos = nx.spring_layout(G, seed=42)
+        nx.draw(G, pos, with_labels=True, node_size=1500, font_weight="bold")
+        plt.title("STRING Protein–Protein Interaction Network")
+
+        fig_path = output_dir / f"{sample_id}_stringdb_ppi_network.svg"
+        plt.savefig(fig_path, format="svg", bbox_inches="tight")
+        plt.close()
+
+        #print(f"💾 Network plot saved to: {fig_path}")
+        results["network_plot"] = fig_path
+
+    return results
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # --- Main Execution ---
@@ -155,8 +318,7 @@ if __name__ == "__main__":
             # df_clean.to_csv("string_enrichment_results.csv", index=False)
         
         # 4. Get Network Image (The cool part of STRING)
-        get_network_image(mapped_ids)
-        
+        #get_network_image(mapped_ids,output_dir=output_dir,sample_id=sample_id)
     else:
         print("No genes could be mapped to STRING IDs.")
 

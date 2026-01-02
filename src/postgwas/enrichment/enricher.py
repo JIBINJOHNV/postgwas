@@ -1,14 +1,10 @@
-import requests
-import json
-import pandas as pd
-import time
-
 # https://maayanlab.cloud/Enrichr/#libraries
 
 import json
 import requests
 import time
 import pandas as pd
+from pathlib import Path
 
 # --- CONFIGURATION ---
 BASE_URL = 'https://maayanlab.cloud/Enrichr'
@@ -78,17 +74,6 @@ ALL_LIBRARIES = [
     "WikiPathways_2019_Human", "WikiPathways_2019_Mouse", "WikiPathways_2024_Human", "WikiPathways_2024_Mouse"
 ]
 
-# --- STEP 1: Upload the Gene List ---
-# Using the list you provided in previous context
-genes_list = [
-    'PHF14', 'RBM3', 'MSL1', 'PHF21A', 'ARL10', 'INSR', 'JADE2', 'P2RX7',
-    'LINC00662', 'CCDC101', 'PPM1B', 'KANSL1L', 'CRYZL1', 'ANAPC16', 'TMCC1',
-    'CDH8', 'RBM11', 'CNPY2', 'HSPA1L', 'CUL2', 'PLBD2', 'LARP7', 'TECPR2', 
-    'ZNF302', 'CUX1', 'MOB2', 'CYTH2', 'SEC22C', 'EIF4E3', 'ROBO2',
-    'ADAMTS9-AS2', 'CXXC1', 'LINC01314', 'ATF7', 'ATP5F1'
-]
-genes_str = '\n'.join(genes_list)
-description = '
 
 def enrichr_add_list(gene_list, description="Enrichr Analysis"):
     """
@@ -130,21 +115,36 @@ def enrichr_get_results(user_list_id, library_name):
         print(f"Error fetching results for {library_name}: {e}")
         return []
 
-def run_enrichr(gene_list, libraries):
+
+
+def run_enrichr(
+    gene_list,
+    libraries=ALL_LIBRARIES,
+    output_dir=None,
+    sample_id=None,
+    save=True,
+):
     """
-    Main function to run Enrichr analysis across multiple libraries.
-    Returns a combined DataFrame.
+    Run Enrichr analysis across multiple libraries.
+    Args:
+        gene_list (list): List of gene symbols.
+        libraries (list): Enrichr libraries (e.g., ['GO_Biological_Process_2021'])
+        output_dir (str | Path | None): Directory to save Enrichr results.
+        sample_id (str | None): Sample/dataset identifier for filenames.
+        save (bool): Whether to save output to disk.
+    Returns:
+        pd.DataFrame: Combined Enrichr results.
     """
-    print(f"Uploading {len(gene_list)} genes to Enrichr...")
+    print(f"📤 Uploading {len(gene_list)} genes to Enrichr…")
     user_list_id = enrichr_add_list(gene_list)
     if not user_list_id:
-        print("Failed to upload gene list.")
+        print("❌ Failed to upload gene list to Enrichr.")
         return pd.DataFrame()
     all_rows = []
     for lib in libraries:
-        print(f"Fetching results from: {lib}")
+        print(f"\t\t\t\t📊 Fetching results from: {lib}")
         results = enrichr_get_results(user_list_id, lib)
-        # Enrichr Response Format (Indices):
+        # Enrichr Response Format:
         # 0: Rank
         # 1: Term Name
         # 2: P-value
@@ -152,23 +152,34 @@ def run_enrichr(gene_list, libraries):
         # 4: Combined Score
         # 5: Genes (list)
         # 6: Adjusted P-value (FDR)
-        # 7: Old P-value
-        # 8: Old Adjusted P-value
         for item in results:
-            row = {
+            all_rows.append({
                 "Library": lib,
                 "Rank": item[0],
                 "Term": item[1],
-                "P-Value": item[2],       # Raw P-Value
-                "Adj P-Value": item[6],   # FDR / Adjusted P-Value
-                "Z-Score": item[3],
-                "Combined Score": item[4],
-                "Genes": ", ".join(item[5]) # Flatten gene list to string
-            }
-            all_rows.append(row)
-        # Polite delay between calls
+                "PValue": item[2],
+                "AdjPValue": item[6],
+                "ZScore": item[3],
+                "CombinedScore": item[4],
+                "Genes": ", ".join(item[5]),
+            })
+        # Polite delay (important for Enrichr API)
         time.sleep(0.5)
-    return pd.DataFrame(all_rows)
+    df = pd.DataFrame(all_rows)
+    # ---------------------------------------------------------
+    # Save output (optional)
+    # ---------------------------------------------------------
+    if save and output_dir is not None:
+        df = df.sort_values(by=["Library", "AdjPValue"])
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if sample_id is None:
+            sample_id = "enrichr"
+        out_file = output_dir / f"{sample_id}_enrichr_results.tsv"
+        df.to_csv(out_file, sep="\t", index=False)
+        print(f"💾 Enrichr results saved to: {out_file}")
+    return df
+
 
 # --- Main Execution ---
 if __name__ == "__main__":
@@ -203,3 +214,5 @@ if __name__ == "__main__":
         # df_sorted.to_csv("enrichr_results.csv", index=False)
     else:
         print("No results found.")
+        
+        

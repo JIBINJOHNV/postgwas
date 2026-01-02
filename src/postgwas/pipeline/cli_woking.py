@@ -36,7 +36,7 @@ from postgwas.annot_ldblock.workflows import run_annot_ldblock
 from postgwas.formatter.workflows import run_formatter_direct
 from postgwas.sumstat_filter.workflows import run_sumstat_filter_direct
 from postgwas.imputation.workflows import run_sumstat_imputation_direct
-from postgwas.finemap.workflows import run_susie_direct
+from src.postgwas.finemap.susie.workflows import run_susie_direct
 from postgwas.ld_clump.workflows import run_ld_clump_direct
 from postgwas.gene_assoc.workflows import run_magma_direct
 from postgwas.magmacovar.workflows import run_magma_covar_direct

@@ -23,11 +23,11 @@ def create_magma_inputs(args):
         sys.exit(1)
     return magma_inputs
 
-def create_finemap_inputs(args):
+def create_finemap_susie_inputs(args):
     """Handler for FINEMAP conversion (Placeholder)."""
     try:
-        from postgwas.formatter.to_finemap import vcf_to_finemap
-        finemap_inputs=vcf_to_finemap(
+        from postgwas.formatter.to_finemap_susie import vcf_to_finemap_susie
+        finemap_inputs=vcf_to_finemap_susie(
             sumstat_vcf=args.vcf, 
             output_folder=args.outdir,
             sample_name=args.sample_id
@@ -37,7 +37,19 @@ def create_finemap_inputs(args):
         sys.exit(1)
     return(finemap_inputs)
 
-
+def create_finemap_finemap_inputs(args):
+    """Handler for FINEMAP conversion (Placeholder)."""
+    try:
+        from postgwas.formatter.to_finemap_finemap import vcf_to_finemap_finemap
+        finemap_inputs=vcf_to_finemap_finemap(
+            sumstat_vcf=args.vcf, 
+            output_folder=args.outdir,
+            sample_name=args.sample_id
+            )
+    except Exception as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    return(finemap_inputs)
 
 
 def create_ldpred_inputs(args):

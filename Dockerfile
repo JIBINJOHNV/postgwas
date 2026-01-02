@@ -11,7 +11,7 @@ USER root
 # We use apt-get for lightweight system libraries.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        gcc g++ make wget git curl bzip2 unzip \
+        gcc g++ make wget git curl bzip2 unzip zip \
         libcurl4-openssl-dev libsuitesparse-dev \
         zlib1g-dev libbz2-dev liblzma-dev \
         ca-certificates pkg-config \
@@ -76,6 +76,27 @@ RUN git clone https://github.com/bulik/ldsc.git && \
     rm -rf ldsc/.git
 
 # =====================================================================
+# 3. ENRICHER ENV (New Module)
+# =====================================================================
+# We combine the requested packages into one create command.
+# Note: rpy2 will automatically pull a compatible r-base into this env.
+RUN micromamba create -y -n enricher -c conda-forge -c bioconda \
+        omnipath \
+        gseapy \
+        bgenix \
+        zeep \
+        rpy2 \
+        pandas \
+        requests \
+        networkx \
+        matplotlib \
+        scipy \
+        r-webgestaltr \
+        zip \
+        gprofiler-official && \
+    micromamba clean --all --yes
+
+# =====================================================================
 # Build HTSlib + BCFtools (And DELETE SOURCE afterwards)
 # =====================================================================
 WORKDIR /opt/tools
@@ -135,19 +156,16 @@ COPY magma/magma /usr/local/bin/magma
 RUN chmod +x /usr/local/bin/magma
 
 # =====================================================================
-# Install PostGWAS (Optimization: Remove Build Deps after Install)
+# Install PostGWAS (Keep R-related dependencies)
 # =====================================================================
 WORKDIR /opt/postgwas
 COPY . /opt/postgwas
 
-# 1. Install package
-# 2. REMOVE the massive build dependencies (Compilers, MKL headers) to save ~2GB
 RUN micromamba run -n postgwas pip install --upgrade pip && \
     micromamba run -n postgwas pip install --no-deps --no-cache-dir -e . && \
+    # ONLY remove heavy build-only tools, NOT the sysroot or compilers 
+    # that R and its libraries depend on
     micromamba remove -n postgwas -y \
-        gcc_linux-64 \
-        gxx_linux-64 \
-        sysroot_linux-64 \
         cmake \
         mkl-include && \
     micromamba clean --all --yes
