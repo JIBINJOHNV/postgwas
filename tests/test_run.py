@@ -3,7 +3,7 @@ import argparse
 import sys
 import os
 import time
-import yaml  # You may need to run: pip install pyyaml
+import yaml
 from pathlib import Path
 
 # ---------------------------------------------------------
@@ -11,7 +11,6 @@ from pathlib import Path
 # ---------------------------------------------------------
 
 def check_docker_environment():
-    """Checks if Docker is installed, and if it's running."""
     print("🔍 Checking Docker environment...")
     try:
         subprocess.run(["docker", "--version"], check=True, capture_output=True)
@@ -39,31 +38,21 @@ def check_docker_environment():
         sys.exit(1)
 
 def update_yaml_resources(yaml_path, resource_folder):
-    """Updates the YAML file with the user-provided resource path."""
     print(f"📝 Updating {os.path.basename(yaml_path)} with current resource paths...")
-    
-    # 1. Validation: Must end with gwas2vcf
     if not resource_folder.rstrip('/').endswith('gwas2vcf'):
         print(f"❌ ERROR: Resource folder must end with 'gwas2vcf'. Provided: {resource_folder}")
         sys.exit(1)
-
-    # 2. Validation: Folder must not be empty
     if not os.listdir(resource_folder):
         print(f"❌ ERROR: Resource folder is empty: {resource_folder}")
         sys.exit(1)
 
-    # 3. Read, Update, and Write YAML
     try:
         with open(yaml_path, 'r') as f:
             config = yaml.safe_load(f)
-
-        # Standardizing trailing slash
-        res_base = os.path.join(resource_folder, '') 
-        
+        res_base = os.path.join(os.path.abspath(resource_folder), '') 
         config['resource_folder'] = res_base
         config['grch37_file'] = os.path.join(res_base, "GRCh37_38_check_files/GRCh37_check_file.tsv")
         config['grch38_file'] = os.path.join(res_base, "GRCh37_38_check_files/GRCh38_check_file.tsv")
-
         with open(yaml_path, 'w') as f:
             yaml.dump(config, f, default_flow_style=False)
         print("✅ YAML updated successfully.")
@@ -75,21 +64,18 @@ def update_yaml_resources(yaml_path, resource_folder):
 # 2. UTILITIES
 # ---------------------------------------------------------
 
-def validate_paths(paths_to_check, create_if_missing=False):
-    for label, path in paths_to_check.items():
-        p = Path(path)
+def validate_paths(paths_dict, create_if_missing=False):
+    resolved_paths = {}
+    for label, path in paths_dict.items():
+        p = Path(path).resolve()
         if not p.exists():
             if create_if_missing:
                 p.mkdir(parents=True, exist_ok=True)
             else:
-                print(f"❌ ERROR: {label} missing at {path}")
+                print(f"❌ ERROR: {label} missing at {p}")
                 sys.exit(1)
-    print("✅ Local paths validated.")
-
-def get_common_base(paths):
-    valid_paths = [os.path.abspath(p) for p in paths if p and p != "NA"]
-    valid_paths.append(os.getcwd())
-    return os.path.commonpath(valid_paths)
+        resolved_paths[label] = str(p)
+    return resolved_paths
 
 def run_step(step_name, command):
     print(f"\n--- 🚀 [STEP: {step_name}] ---")
@@ -105,61 +91,65 @@ def run_step(step_name, command):
 # ---------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="PostGWAS Pipeline Runner",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    parser.add_argument("-i", "--input-dir", help="REQUIRED: Input GWAS folder")
-    parser.add_argument("-r", "--resource-folder", help="REQUIRED: Resource folder ending in gwas2vcf")
-    parser.add_argument("-o", "--outdir", default=os.getcwd(), help="Output folder")
-    parser.add_argument("-d", "--yaml-defaults", help="Path to harmonisation.yaml")
+    parser = argparse.ArgumentParser(description="PostGWAS Pipeline Runner")
+    parser.add_argument("-i", "--input-dir", required=True)
+    parser.add_argument("-r", "--resource-folder", required=True)
+    parser.add_argument("-o", "--outdir", default=os.getcwd())
+    parser.add_argument("-d", "--yaml-defaults")
     parser.add_argument("--threads", default="10")
     parser.add_argument("--memory", default="50G")
     parser.add_argument("--image", default="jibinjv/postgwas:1.3")
 
     args = parser.parse_args()
-
-    if not args.input_dir or not args.resource_folder:
-        print("❌ ERROR: --input-dir and --resource-folder are required.")
-        sys.exit(1)
-
     check_docker_environment()
 
-    if args.yaml_defaults is None:
-        args.yaml_defaults = os.path.join(args.input_dir, "harmonisation.yaml")
+    # Resolve Paths
+    input_path = os.path.abspath(args.input_dir)
+    res_path = os.path.abspath(args.resource_folder)
+    out_path = os.path.abspath(args.outdir)
+    yaml_path = os.path.abspath(args.yaml_defaults) if args.yaml_defaults else os.path.join(input_path, "harmonisation.yaml")
 
-    # PRE-STEP: Update YAML paths before validation
-    validate_paths({
-        "Input Directory": args.input_dir,
-        "Resource Folder": args.resource_folder,
-        "YAML Config": args.yaml_defaults
-    })
-    
-    update_yaml_resources(args.yaml_defaults, args.resource_folder)
+    paths = validate_paths({"Input": input_path, "Resources": res_path, "YAML": yaml_path})
+    update_yaml_resources(paths["YAML"], paths["Resources"])
+    validate_paths({"Output": out_path}, create_if_missing=True)
 
-    validate_paths({"Output Directory": args.outdir}, create_if_missing=True)
+    config_csv = os.path.join(out_path, "harmonisatio_example_input_file.csv")
 
-    config_path = os.path.join(args.outdir, "harmonisatio_example_input_file.csv")
-    base_vol = get_common_base([args.input_dir, args.resource_folder, args.outdir, args.yaml_defaults])
+    # Get Current User/Group IDs (Linux/macOS only)
+    user_id = os.getuid()
+    group_id = os.getgid()
+
+    docker_mounts = [
+        "-u", f"{user_id}:{group_id}",  # <--- CRITICAL FIX FOR PERMISSIONS
+        "-v", f"{paths['Input']}:{paths['Input']}",
+        "-v", f"{paths['Resources']}:{paths['Resources']}",
+        "-v", f"{out_path}:{out_path}",
+        "-v", f"{paths['YAML']}:{paths['YAML']}"
+    ]
 
     # STEP 1: Column Mapping
     run_step("Column Mapping", [
-        "docker", "run", "--rm", "--platform", "linux/amd64", 
-        "-v", f"{base_vol}:{base_vol}", args.image, 
-        "python", "/opt/postgwas/src/postgwas/scripts/create_sumstat_map_pl.py", 
-        "--input", args.input_dir, "--resource-folder", args.resource_folder, 
-        "--output-path", config_path, "--harmonisation-output-path", args.outdir
+        "docker", "run", "--rm", "--platform", "linux/amd64"
+    ] + docker_mounts + [
+        args.image, "python", "/opt/postgwas/src/postgwas/scripts/create_sumstat_map_pl.py", 
+        "--input", paths["Input"], 
+        "--resource-folder", paths["Resources"], 
+        "--output-path", config_csv, 
+        "--harmonisation-output-path", out_path
     ])
 
     # STEP 2: Harmonisation
     run_step("Harmonisation", [
-        "docker", "run", "--rm", "--platform", "linux/amd64", 
-        "-v", f"{base_vol}:{base_vol}", args.image, 
-        "postgwas", "harmonisation", "--nthreads", args.threads, 
-        "--max-mem", args.memory, "--config", config_path, "--defaults", args.yaml_defaults
+        "docker", "run", "--rm", "--platform", "linux/amd64"
+    ] + docker_mounts + [
+        args.image, "postgwas", "harmonisation", 
+        "--nthreads", args.threads, 
+        "--max-mem", args.memory, 
+        "--config", config_csv, 
+        "--defaults", paths["YAML"]
     ])
 
-    print(f"\n🎉 COMPLETED. Results: {args.outdir}")
+    print(f"\n🎉 COMPLETED. Results: {out_path}")
 
 if __name__ == "__main__":
     main()

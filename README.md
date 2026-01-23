@@ -75,7 +75,7 @@ docker run --platform=linux/amd64 -it jibinjv/postgwas:1.3 postgwas pipeline \
 - This run make sure the docker
 
 ```sh
-git clone git@github.com:JIBINJOHNV/postgwas.git
+git clone https://github.com/JIBINJOHNV/postgwas.git
 cd postgwas/tests/ 
 
 python test_run.py \

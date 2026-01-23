@@ -520,7 +520,12 @@ def run_vep_within_environment(
     input_file, output_file, vep_path, vep_cache, build,
 ):
 
-    # --- Correct placement: Inside the function body ---
+    if not vep_path or str(vep_path).lower() in ["false", "none"]:
+        raise RuntimeError(
+            "run_vep_within_environment() called with vep_path=False. "
+            "This should never happen when cmd_vep=False."
+        )
+
     print("\t\t\t run_vep_within_environment function")
     # --- 1. Set Default Path if Empty ---
     if not vep_path:
@@ -543,6 +548,13 @@ def run_vep_within_environment(
 def cmd_VEP(
     creds, genes, prob_col, build, VEP_path, VEP_cache, outdir
 ):
+    
+    if not VEP_path or str(VEP_path).lower() in ["false", "none"]:
+        raise RuntimeError(
+            "cmd_VEP() was called but VEP_path is False/None. "
+            "This is a logic error — cmd_vep should be a real path."
+        )
+        
     tmpname = tempfile.mktemp()
     tmp_file_path = os.path.join(f"{tmpname}.vcf")
     output_file_path = os.path.join(f"{tmpname}_output.vcf")
@@ -960,6 +972,16 @@ def annotate_credset(
     trainset=False,
     filter=750000,
 ):
+
+    if isinstance(cmd_vep, str) and cmd_vep.lower() in ["false", "none", "no", "0", ""]:
+        cmd_vep = False
+
+    if isinstance(vep_cache, str) and vep_cache.lower() in ["false", "none", "no", "0", ""]:
+        vep_cache = False
+
+    # Optional debug (keep during testing)
+    print(f"[DEBUG] cmd_vep={cmd_vep!r}  vep_cache={vep_cache!r}")
+    
     genes = get_TSS_distances(creds, genes, prob_col, build)
     if trainset:
         if not check_dist_to_causal(genes, dist=750000):
@@ -969,18 +991,22 @@ def annotate_credset(
         print(f"\nNo genes after filtering SNPs on distance, exiting\n")
         return genes
     start_time = time.time()
-    if cmd_vep == False:
+    # --- VEP routing: API vs local ---
+    if cmd_vep is False or cmd_vep is None:
+        print("\t\t\t Using VEP API (no local VEP)")
         genes = get_VEP(creds, genes, prob_col, build)
-        if len(genes) == 0:
-            print("\nError in querying VEP, exiting\n")
+        if isinstance(genes, str) or len(genes) == 0:
+            print("\nError in querying VEP API, exiting\n")
             return genes
     else:
+        print(f"\t\t\t Using local VEP: {cmd_vep}")
         genes = cmd_VEP(
             creds, genes, prob_col, build, cmd_vep, vep_cache, outdir
         )
-        if len(genes) == 0:
-            print("\nError in querying VEP, this could be due to the VEP API server. Please try again later or contact our GitHub, exiting\n")
+        if isinstance(genes, str) or len(genes) == 0:
+            print("\nError in running local VEP, exiting\n")
             return genes
+    
     if type(genes) == str:
         print("\nError in querying VEP, exiting\n")
         return genes

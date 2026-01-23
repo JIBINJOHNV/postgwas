@@ -73,6 +73,15 @@ def run_flames_direct(args):
     )
 
     # FLAMES inputs
+    # Convert string "False" (from Docker/Argparse) back to boolean False
+    cmd_vep = args.cmd_vep
+    if str(cmd_vep).lower() == "false":
+        cmd_vep = False
+
+    vep_cache = args.vep_cache
+    if str(vep_cache).lower() == "false":
+        vep_cache = False
+        
     annotation_dir = args.flames_annot_dir
     pops          = args.pops_score_file
     magma_z       = args.magma_genes_out
