@@ -77,7 +77,11 @@ def run_flames_direct(args):
     pops          = args.pops_score_file
     magma_z       = args.magma_genes_out
     magma_tissue  = args.magma_tissue_covar_results
-
+    cmd_vep = args.cmd_vep
+    vep_cache = args.vep_cache
+    tabix = args.tabix
+    CADD_file = args.CADD_file
+    
     # Defaults for FLAMES model
     filename  = "FLAMES_scores"
     modelpath = Path(__file__).parent / "model"
@@ -99,7 +103,12 @@ def run_flames_direct(args):
         --magma_tissue "{magma_tissue}" \
         --indexfile "{indexfile}" \
         --prob_col "{prob_col}" \
-        --SNP_col "{snp_col}"
+        --SNP_col "{snp_col}" \
+        --cmd_vep "{cmd_vep}" \
+        --vep_cache "{vep_cache}" \
+        --tabix "{tabix}" \
+        --CADD_file  "{CADD_file}"
+        
     """
     print("             🔥 Running FLAMES annotation…")
 

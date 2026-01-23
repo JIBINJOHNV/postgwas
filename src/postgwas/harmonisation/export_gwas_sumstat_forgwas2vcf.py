@@ -105,7 +105,8 @@ def export_gwas_sumstat(
     missing = set(required_columns_in_sumstat) - set(required_pairs.keys())
     if missing:
         log_print(f"⚠️ Missing required columns: {', '.join(missing)} — exiting.")
-
+        print(f"⚠️ Missing required columns: {', '.join(missing)} — exiting.")
+        print(sample_column_dict)
         # write log
         with open(log_file, "w") as f:
             f.write(log_buffer.getvalue())
@@ -163,11 +164,10 @@ def export_gwas_sumstat(
             params["beta_col"] = df_columns.index(col)
         else:
             params[key] = df_columns.index(col)
-
-    # Fill missing optional fields
-    for opt_key in optional_columns_in_sumstat:
-        if opt_key not in params:
-            params[opt_key] = "NA"
+    # # Fill missing optional fields
+    # for opt_key in optional_columns_in_sumstat:
+    #     if opt_key not in params:
+    #         params[opt_key] = "NA"
 
     params.update({
         "delimiter": "\t",

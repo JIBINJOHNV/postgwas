@@ -50,7 +50,7 @@ def convert_pval_to_mlogp(
     sample_column_dict,
     output_col: str = "LP",
     min_p: float = 1e-300,
-    max_p: float = 0.99):
+    max_p: float = 0.9999):
     """
     Safely convert raw p-values (0–1) → -log10(p).
     Parameters
@@ -167,10 +167,6 @@ def convert_mlogp_to_pval(
 
 
 
-import polars as pl
-from pathlib import Path
-import io
-from typing import Tuple, Dict
 
 
 def detect_and_convert_pval(

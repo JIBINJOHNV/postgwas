@@ -3,13 +3,14 @@ from postgwas.enrichment.david import run_david_enrichment
 from postgwas.enrichment.dgidb import query_dgidb
 from postgwas.enrichment.enricher import run_enrichr
 from postgwas.enrichment.gprofiler2 import run_gprofiler_with_raw_stats
-from postgwas.enrichment.omnipath import run_omnipath_interactions
+from postgwas.enrichment.omnipath_wrapper import run_omnipath_interactions
 from postgwas.enrichment.toppgene import run_topgene_enrichment
 from postgwas.enrichment.stringdb import run_stringdb_analysis
 from postgwas.enrichment.DSigDB import run_dsigd_ora_webgestalt
 import rpy2.robjects as ro
 from rpy2.robjects import StrVector
 from pathlib import Path
+import traceback
 
 
 
@@ -17,16 +18,11 @@ from pathlib import Path
 # 1. SETUP: You MUST paste your key here
 # Register at: https://webservice.thebiogrid.org/
 
-output_dir="/Users/JJOHN41/Documents/developing_software/data/oudir/PGC3_SCZ_european/enrichment/"
-biogrid_access_key = "86cf1c2c7c8b2972cc5e6b31c45e8584"
-sample_id='PGC3_SCZ_european'
-my_genes = ["BRCA1", "TP53", "EGFR", "MYC"]
-email_id="johnjibinv@gmail.com"
-
-
-
-from pathlib import Path
-import traceback
+# output_dir="/Users/JJOHN41/Documents/developing_software/data/oudir/PGC3_SCZ_european/enrichment/"
+# biogrid_access_key = "86cf1c2c7c8b2972cc5e6b31c45e8584"
+# sample_id='PGC3_SCZ_european'
+# my_genes = ["BRCA1", "TP53", "EGFR", "MYC"]
+# email_id="johnjibinv@gmail.com"
 
 def run_multisource_enrichment_pipeline(
     gene_list,
@@ -49,6 +45,25 @@ def run_multisource_enrichment_pipeline(
     print(f"\n🧬 Running enrichment pipeline for: {sample_id}")
     print(f"🧬 Total input genes: {len(gene_list)}")
 
+
+    # ---------------------------------------------------------
+    # 7. OmniPath
+    # ---------------------------------------------------------
+    try:
+        print("\n🔹 OmniPath")
+        out = base_out / "omnipath"
+        out.mkdir(exist_ok=True)
+
+        run_omnipath_interactions(
+            gene_list=gene_list,
+            output_dir=out,
+            sample_id=sample_id,
+            save=True,
+        )
+
+    except Exception:
+        print("❌ OmniPath failed")
+        traceback.print_exc()
     # ---------------------------------------------------------
     # 1. DSigDB ORA (WebGestaltR)
     # ---------------------------------------------------------
@@ -195,25 +210,6 @@ def run_multisource_enrichment_pipeline(
         traceback.print_exc()
 
     # ---------------------------------------------------------
-    # 7. OmniPath
-    # ---------------------------------------------------------
-    try:
-        print("\n🔹 OmniPath")
-        out = base_out / "omnipath"
-        out.mkdir(exist_ok=True)
-
-        run_omnipath_interactions(
-            gene_list=gene_list,
-            output_dir=out,
-            sample_id=sample_id,
-            save=True,
-        )
-
-    except Exception:
-        print("❌ OmniPath failed")
-        traceback.print_exc()
-
-    # ---------------------------------------------------------
     # 8. ToppGene
     # ---------------------------------------------------------
     try:
@@ -256,11 +252,11 @@ def run_multisource_enrichment_pipeline(
 
 
 
-run_multisource_enrichment_pipeline(
-    gene_list=["BRCA1", "TP53", "EGFR", "MYC"],
-    output_dir="/Users/JJOHN41/Documents/developing_software/data/oudir/PGC3_SCZ_european/enrichment/",
-    sample_id="PGC3_SCZ_european",
-    biogrid_access_key="YOUR_BIOGRID_KEY",
-    david_email="johnjibinv@gmail.com",
-    dsigdb_gmt="/path/to/DSigDB_All.gmt",
-)
+# run_multisource_enrichment_pipeline(
+#     gene_list=["BRCA1", "TP53", "EGFR", "MYC"],
+#     output_dir="/Users/JJOHN41/Documents/developing_software/data/oudir/PGC3_SCZ_european/enrichment/",
+#     sample_id="PGC3_SCZ_european",
+#     biogrid_access_key="YOUR_BIOGRID_KEY",
+#     david_email="johnjibinv@gmail.com",
+#     dsigdb_gmt="/path/to/DSigDB_All.gmt",
+# )

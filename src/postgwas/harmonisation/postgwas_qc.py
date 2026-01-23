@@ -9,56 +9,51 @@ import pandas as pd
 from pathlib import Path
 
 
+
+
 def qc_json_to_dataframes(qc_file):
-    """
-    Convert QC summary JSON into a single flattened dataframe:
-        rows    = (section, metric)
-        columns = chr1, chr2, …, chr22 + total_variant_infile, total_variant_read
-    Handles nested:
-        sample_size_qc → sample_size_stats → Nca/Nco/Neff
-    """
     qc_file = Path(qc_file)
-    # Load JSON
     with qc_file.open() as f:
         qc = json.load(f)
-    # ---- NEW: capture top-level totals (if present) ----
+    # Capture totals
     total_variant_infile = qc.get("total_variant_infile", None)
     total_variant_read   = qc.get("total_variant_read", None)
-    # Identify chromosome keys
     chrom_keys = [k for k in qc.keys() if k.isdigit()]
     long_records = []
-    # -------------------------------------------
-    # Build long-format table
-    # -------------------------------------------
     for chrom in chrom_keys:
         chrom_data = qc[chrom]
         for section_name, section_data in chrom_data.items():
-            # SPECIAL CASE: sample_size_qc
+            # --- SPECIAL CASE: sample_size_qc ---
             if section_name == "sample_size_qc":
-                # top-level simple metrics
-                for k, v in section_data.items():
-                    if k != "sample_size_stats":
-                        long_records.append({
-                            "chromosome": chrom,
-                            "section": section_name,
-                            "metric": k,
-                            "value": v
-                        })
-                # nested stats: Nca / Nco / Neff
-                stats = section_data.get("sample_size_stats", {})
-                for group_name, group_values in stats.items():
-                    for stat_name, stat_value in group_values.items():
-                        long_records.append({
-                            "chromosome": chrom,
-                            "section": section_name,
-                            "metric": f"{group_name}_{stat_name}",
-                            "value": stat_value
-                        })
-            # NORMAL SECTIONS
+                # 1. Handle simple metrics
+                if isinstance(section_data, dict):
+                    for k, v in section_data.items():
+                        if k != "sample_size_stats":
+                            long_records.append({
+                                "chromosome": chrom,
+                                "section": section_name,
+                                "metric": k,
+                                "value": v
+                            })
+                    # 2. Handle nested stats safely
+                    stats = section_data.get("sample_size_stats", {})
+                    # FIX: Check if 'stats' is actually a dictionary
+                    if isinstance(stats, dict):
+                        for group_name, group_values in stats.items():
+                            if isinstance(group_values, dict):
+                                for stat_name, stat_value in group_values.items():
+                                    long_records.append({
+                                        "chromosome": chrom,
+                                        "section": section_name,
+                                        "metric": f"{group_name}_{stat_name}",
+                                        "value": stat_value
+                                    })
+                    else:
+                        print(f"⚠️ Warning: 'sample_size_stats' in Chr{chrom} is not a dict. Value: {stats}")
+            # --- NORMAL SECTIONS ---
             elif isinstance(section_data, dict):
                 for k, v in section_data.items():
                     if isinstance(v, dict):
-                        # flatten one nested dict level
                         for k2, v2 in v.items():
                             long_records.append({
                                 "chromosome": chrom,
@@ -73,31 +68,118 @@ def qc_json_to_dataframes(qc_file):
                             "metric": k,
                             "value": v
                         })
+    # If no data found, return empty DF
+    if not long_records:
+        return pd.DataFrame()
     qc_long = pd.DataFrame(long_records)
-    # -------------------------------------------
-    # Create wide pivot table
-    # -------------------------------------------
+    # Pivot
     df = qc_long.pivot(
         index=["section", "metric"],
         columns="chromosome",
         values="value"
     ).reset_index()
-    # Flatten MultiIndex columns
+    # Clean columns
     df.columns = [
         "_".join(col).strip() if isinstance(col, tuple) else col
         for col in df.columns
     ]
-    # Remove "value_" prefix (from pivot)
     df.columns = [c.replace("value_", "") for c in df.columns]
-    # Add chr prefix for numeric chromosome columns
-    df.columns = [
-        f"chr{c}" if c.isdigit() else c
-        for c in df.columns
-    ]
-    # ---- NEW: add total variant columns (same value for all rows) ----
+    # Add 'chr' prefix for numeric columns
+    df.columns = [f"chr{c}" if str(c).isdigit() else c for c in df.columns]
+    # Add totals
     df["total_variant_infile"] = total_variant_infile
     df["total_variant_read"]   = total_variant_read
     return df
+
+# def qc_json_to_dataframes(qc_file):
+#     """
+#     Convert QC summary JSON into a single flattened dataframe:
+#         rows    = (section, metric)
+#         columns = chr1, chr2, …, chr22 + total_variant_infile, total_variant_read
+#     Handles nested:
+#         sample_size_qc → sample_size_stats → Nca/Nco/Neff
+#     """
+#     qc_file = Path(qc_file)
+#     # Load JSON
+#     with qc_file.open() as f:
+#         qc = json.load(f)
+#     # ---- NEW: capture top-level totals (if present) ----
+#     total_variant_infile = qc.get("total_variant_infile", None)
+#     total_variant_read   = qc.get("total_variant_read", None)
+#     # Identify chromosome keys
+#     chrom_keys = [k for k in qc.keys() if k.isdigit()]
+#     long_records = []
+#     # -------------------------------------------
+#     # Build long-format table
+#     # -------------------------------------------
+#     for chrom in chrom_keys:
+#         chrom_data = qc[chrom]
+#         for section_name, section_data in chrom_data.items():
+#             # SPECIAL CASE: sample_size_qc
+#             if section_name == "sample_size_qc":
+#                 # top-level simple metrics
+#                 for k, v in section_data.items():
+#                     if k != "sample_size_stats":
+#                         long_records.append({
+#                             "chromosome": chrom,
+#                             "section": section_name,
+#                             "metric": k,
+#                             "value": v
+#                         })
+#                 # nested stats: Nca / Nco / Neff
+#                 stats = section_data.get("sample_size_stats", {})
+#                 for group_name, group_values in stats.items():
+#                     for stat_name, stat_value in group_values.items():
+#                         long_records.append({
+#                             "chromosome": chrom,
+#                             "section": section_name,
+#                             "metric": f"{group_name}_{stat_name}",
+#                             "value": stat_value
+#                         })
+#             # NORMAL SECTIONS
+#             elif isinstance(section_data, dict):
+#                 for k, v in section_data.items():
+#                     if isinstance(v, dict):
+#                         # flatten one nested dict level
+#                         for k2, v2 in v.items():
+#                             long_records.append({
+#                                 "chromosome": chrom,
+#                                 "section": section_name,
+#                                 "metric": f"{k}_{k2}",
+#                                 "value": v2
+#                             })
+#                     else:
+#                         long_records.append({
+#                             "chromosome": chrom,
+#                             "section": section_name,
+#                             "metric": k,
+#                             "value": v
+#                         })
+#     qc_long = pd.DataFrame(long_records)
+#     # -------------------------------------------
+#     # Create wide pivot table
+#     # -------------------------------------------
+#     df = qc_long.pivot(
+#         index=["section", "metric"],
+#         columns="chromosome",
+#         values="value"
+#     ).reset_index()
+#     # Flatten MultiIndex columns
+#     df.columns = [
+#         "_".join(col).strip() if isinstance(col, tuple) else col
+#         for col in df.columns
+#     ]
+#     # Remove "value_" prefix (from pivot)
+#     df.columns = [c.replace("value_", "") for c in df.columns]
+#     # Add chr prefix for numeric chromosome columns
+#     df.columns = [
+#         f"chr{c}" if c.isdigit() else c
+#         for c in df.columns
+#     ]
+#     # ---- NEW: add total variant columns (same value for all rows) ----
+#     df["total_variant_infile"] = total_variant_infile
+#     df["total_variant_read"]   = total_variant_read
+#     return df
 
 
 

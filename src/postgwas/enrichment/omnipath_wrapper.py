@@ -1,9 +1,16 @@
 import pandas as pd
 from pathlib import Path
 import omnipath as op
+
 # https://omnipathdb.org/ ; https://omnipath.readthedocs.io/en/latest/api.html 
 # 
 
+
+import pandas as pd
+from pathlib import Path
+import os
+import omnipath as op
+import omnipath.interactions 
 
 def run_omnipath_interactions(
     gene_list,
@@ -13,16 +20,27 @@ def run_omnipath_interactions(
 ):
     """
     Fetches interactions using the official OmniPath client.
-
-    Args:
-        gene_list (list): List of gene symbols.
-        output_dir (str | Path | None): Directory to save OmniPath interactions.
-        sample_id (str | None): Sample/dataset identifier for filenames.
-        save (bool): Whether to save output to disk.
-
-    Returns:
-        pd.DataFrame: OmniPath interaction table.
     """
+    
+    # ---------------------------------------------------------
+    # ✅ FIX: Explicitly set the cache directory
+    # ---------------------------------------------------------
+    # We try to use the safe directory defined in main.py (via XDG_CACHE_HOME),
+    # but if that is missing, we create a safe local temp folder.
+    try:
+        # Get the path (defaulting to a safe /tmp/user_ID folder if env var is missing)
+        uid = os.getuid()
+        safe_cache = os.environ.get("XDG_CACHE_HOME", f"/tmp/user_{uid}_omnipath_cache")
+        
+        # Ensure it exists
+        Path(safe_cache).mkdir(parents=True, exist_ok=True)
+        
+        # Apply the setting found in documentation
+        op.options.cache = safe_cache
+        print(f"⚙️  OmniPath cache set to: {op.options.cache}")
+        
+    except Exception as e:
+        print(f"⚠️  Could not configure OmniPath cache: {e}")
 
     try:
         print("🔗 Fetching OmniPath data via official client…")

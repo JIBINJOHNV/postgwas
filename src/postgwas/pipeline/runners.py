@@ -30,7 +30,7 @@ from postgwas.flames.workflows import run_flames_direct
 from postgwas.h2_rg.workflows import run_ldsc_direct
 from postgwas.manhattan.workflows import run_assoc_plot_direct
 from postgwas.qc_summary.workflows import run_qc_summary_direct
-
+from postgwas.finemap.finemap.workflows import run_finemap_pipeline
 
 # ============================================================
 # HELPER: Directory Manager (DYNAMIC)
@@ -289,16 +289,43 @@ def run_ld_clump_runner(args, ctx):
 
 def run_finemap_runner(args, ctx):
     root = setup_subdir(args, "finemap")
-
-    if args.finemap_method=="susie":
-        args.susie_input_file = ctx["formatter"]["finemap_susie"]["susie_input"]
-        args.locus_file = ctx["ld_clump"]["ldpruned_sig_file"]
-        try:
+    args.locus_file = ctx["ld_clump"]["ldpruned_sig_file"]
+    
+    # --- FIX: Normalize the argument (Handle List vs String) ---
+    method = args.finemap_method
+    if isinstance(method, list):
+        # Create a clean string like "susie, finemap"
+        methods_str = ", ".join(method)
+        print(f"\t\t\t ℹ️  Multiple methods provided ({methods_str}). Defaulting to the first one: '{method[0]}'")
+        method = method[0]
+    try:
+        # Check against the normalized 'method' variable
+        if method == "susie":
+            args.susie_input_file = ctx["formatter"]["finemap_susie"]["susie_input"]
             outputs = run_parallel_susie(args)
             ctx["finemap"] = outputs
             return outputs
-        finally:
-            args.outdir = root
+        elif method == "finemap":
+            print("\t\t\t🔹 Using FINEMAP method for finemapping")
+            # Ensure formatter output exists
+            if "finemap_finemap" not in ctx["formatter"]:
+                 raise KeyError("Formatter output for 'finemap_finemap' is missing. Did the formatter run correctly?")
+
+            args.finemap_in_files = ctx["formatter"]["finemap_finemap"]["finemap_input"]
+            
+            # Use the correct pipeline function you identified
+            # Ensure 'run_finemap_pipeline' is imported at the top of runners.py!
+            outputs = run_finemap_pipeline(args)
+            
+            ctx["finemap"] = outputs
+            print(f"   ✅ Output: {outputs}")
+            return outputs
+
+        # --- SAFETY NET ---
+        else:
+            raise ValueError(f"CRITICAL ERROR: Unknown finemap method '{method}'. Options are 'susie' or 'finemap'.")
+    finally:
+        args.outdir = root
 
 
 def run_magma_runner(args, ctx):

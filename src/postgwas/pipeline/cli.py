@@ -224,8 +224,7 @@ def main():
     if "annot_ldblock" in all_active_modules:
         execution_modules.append("annot_ldblock")
 
-    downstream_tools = ["ld_clump", "finemap", "magma", "magmacovar", "pops", "flames", "heritability"]
-    
+    downstream_tools = ["ld_clump", "magma", "magmacovar", "pops", "finemap", "flames", "heritability"]
     # LOGIC FIX: Only run 2nd formatter if downstream analysis exists OR explicit user request
     has_downstream = any(m in all_active_modules for m in downstream_tools)
     user_explicitly_asked_format = "formatter" in raw_modules
@@ -346,20 +345,31 @@ def main():
     try:
         args.modules = parser_modules 
         execute_pipeline(args, execution_modules)
-        
-    except (ValueError, OSError, AttributeError, TypeError, SystemExit) as e:
-        if isinstance(e, SystemExit):
-            if e.code != 0:
-                print_full_pipeline_help(execution_modules, parser)
-                sys.exit(e.code)
-            sys.exit(0)
 
+    # ✅ CASE 1: Clean Stop (sys.exit from within the pipeline)
+    except SystemExit as e:
+        # Just exit with the same code. 
+        # Do NOT print help. This handles your "Empty File" stop cleanly.
+        sys.exit(e.code)
+
+    # ✅ CASE 2: Known Configuration/Usage Errors
+    except (ValueError, OSError, AttributeError, TypeError) as e:
         err_msg = str(e).lower()
+        
+        # Only print the Help Menu if the user is missing a tool or argument
         if "required" in err_msg or "executable not found" in err_msg:
-             console.print(f"\n❌ [bold red]Execution Error:[/bold red] {e}") 
+             console.print(f"\n❌ [bold red]Configuration Error:[/bold red] {e}") 
              print_full_pipeline_help(execution_modules, parser)
              sys.exit(2)
-        raise
+        
+        # For other Python errors (bugs), just print the error, no help menu spam
+        console.print(f"\n❌ [bold red]Pipeline Failed:[/bold red] {e}")
+        sys.exit(1)
+
+    # ✅ CASE 3: Unknown Crashes
+    except Exception as e:
+        console.print(f"\n❌ [bold red]Critical Unexpected Error:[/bold red] {e}")
+        sys.exit(1)
 
     console.print("\n🎉 Pipeline complete.\n")
 

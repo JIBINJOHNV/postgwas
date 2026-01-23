@@ -119,6 +119,5 @@ def genome_build(t_df: pl.DataFrame, grch37_file: str, grch38_file: str, sample_
         "percent_grch38": round(perc38 * 100, 2),
         "total_variants": total
     }
-    #print(f"✅ Genome build inference complete → {inferred_build}")
     #print(f"📊 GRCh37: {grch37_match:,} ({perc37*100:.2f}%) | GRCh38: {grch38_match:,} ({perc38*100:.2f}%)")
     return genome_build_info

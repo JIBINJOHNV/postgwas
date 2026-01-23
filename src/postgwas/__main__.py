@@ -30,7 +30,7 @@ from postgwas.manhattan.cli import main as manhattan_main
 from postgwas.h2_rg.cli import main as heritability_main
 from postgwas.imputation.cli import main as imputation_main
 from postgwas.pipeline.cli import main as pipeline_main
-
+from postgwas.enrichment.main import main as enrichment_main
 # -------------------------------------------------------------------
 # MODULE REGISTRY (alphabetical by key)
 # -------------------------------------------------------------------
@@ -48,6 +48,7 @@ MODULES = {
     "manhattan":     (manhattan_main,     "Generate Manhattan/QQ plots"),
     "pops":          (pops_main,          "Run PoPS gene-prioritisation module"),
     "qc":            (qc_main,            "Run QC summary module"),
+    "pathway_enrichmnet":(enrichment_main,"Run pathway enrichment module"),
     "sumstat_filter":(sumstat_filter_main,"Summary-statistics filtering module"),
     "pipeline":(pipeline_main,"Summary-statistics pipeline module"),
 }

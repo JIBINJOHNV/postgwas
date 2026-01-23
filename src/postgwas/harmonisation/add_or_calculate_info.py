@@ -3,7 +3,6 @@ import io, os
 from pathlib import Path
 from typing import Tuple, Dict
 
-
 def add_or_calculate_info(
     chromosome: str,
     df: pl.DataFrame,
@@ -15,11 +14,8 @@ def add_or_calculate_info(
 ) -> Tuple[pl.DataFrame, Dict, dict]:
     """
     Add or merge imputation INFO score column into GWAS summary dataframe using Polars.
-    Silent version:
-        • No printing to screen
-        • All logs written to logs/{gwas_outputname}_chr{chromosome}_info.log
-        • Fully multiprocessing-safe
     """
+    #print(f"--- Info score calculation started for Chr {chromosome} ---")
 
     # -------------------------------------------------------
     # Setup chromosome-specific log file
@@ -27,23 +23,28 @@ def add_or_calculate_info(
     gwas_outputname = sample_column_dict.get("gwas_outputname", "GWAS")
     output_dir = sample_column_dict.get("output_folder", ".")
     log_dir = Path(output_dir) / "logs"
+    
+    # Create log directory immediately
     log_dir.mkdir(parents=True, exist_ok=True)
-
     log_file = log_dir / f"{gwas_outputname}_chr{chromosome}_add_or_calculate_info.log"
 
-    # Multiprocessing-safe, SILENT buffered logger
-    log_buffer = io.StringIO()
+    # Initialize the log file (overwrite if exists)
+    with open(log_file, "w") as f:
+        f.write(f"Log started for Chromosome {chromosome}\n")
 
     def log_print(*args):
+        """Writes to log file IMMEDIATELY so you can see progress."""
         msg = " ".join(str(a) for a in args)
-        log_buffer.write(msg + "\n")   # <-- NO printing to screen
+        # Append to file on disk immediately
+        with open(log_file, "a") as f:
+            f.write(msg + "\n")
 
     # -------------------------------------------------------
     # MAIN LOGIC
     # -------------------------------------------------------
     qc_info = {"initial_variants": df.height}
 
-    log_print("\n🧩 Starting INFO score harmonization...")
+    log_print(f"\n🧩 Starting INFO score harmonization for Chr {chromosome}...")
 
     # Extract mapping
     chr_col = sample_column_dict["chr_col"]
@@ -89,27 +90,41 @@ def add_or_calculate_info(
             f"✅ INFO (internal): range={stats['min']:.3f}–{stats['max']:.3f}, "
             f"mean={stats['mean']:.3f}, median={stats['median']:.3f}, n={stats['total']:,}"
         )
-
-        with open(log_file, "w") as f:
-            f.write(log_buffer.getvalue())
-
         return df, qc_info, sample_column_dict
 
     # ===============================================================
     # STEP 2: Choose external INFO source
     # ===============================================================
+    info_file_to_use = None
+    info_col_to_use = None
+    info_source = "NA"
+    
+    potential_chr_file = f"{info_file}_chr{chromosome}.tsv.gz"
+
     if info_file != "NA" and os.path.exists(info_file):
         info_file_to_use = info_file
         info_col_to_use = info_column
-        info_source = f"user provided"
+        info_source = "user provided"
+    elif info_file != "NA" and os.path.exists(potential_chr_file):
+        info_file_to_use = potential_chr_file
+        info_col_to_use = info_column
+        info_source = "user provided (chrom split)"
+        log_print(f"ℹ️ Found chromosome split file: {info_file_to_use}")
     elif default_info_file != "NA" and os.path.exists(default_info_file):
         info_file_to_use = default_info_file
         info_col_to_use = default_info_column
-        info_source = f"default"
+        info_source = "default"
+        log_print(f"⚠️ Primary INFO file missing. Using Default: {default_info_file}")
     else:
-        raise FileNotFoundError(
-            "❌ No valid INFO source provided (neither internal INFO nor external INFO files)."
+        err_msg = (
+            f"\n🛑 PIPELINE STOPPED: INFO score not available.\n"
+            f"• Chromosome: {chromosome}\n"
+            f"• Checked user file: {info_file}\n"
+            f"• Checked chrom split: {potential_chr_file}\n"
+            f"• Checked default: {default_info_file}\n"
         )
+        log_print(err_msg)
+        raise FileNotFoundError(err_msg)
 
     log_print(
         f"📂 Using {info_source} INFO file: {os.path.basename(info_file_to_use)} "
@@ -120,52 +135,74 @@ def add_or_calculate_info(
     # Helper: Load external INFO file
     # ===============================================================
     def load_info_file(path: str, colname: str) -> pl.DataFrame:
+        log_print("⏳ Loading INFO file from disk... (This may take a moment)")
+        if os.path.getsize(path) == 0:
+            raise ValueError(f"File is empty: {path}")
+
         info_df = (
-            pl.read_csv(path, separator=r"\s+")
-            .select(["chr", "pos", "a1", "a2", colname])
+            pl.read_csv(
+                path,
+                separator="\t",
+                null_values=["NA", ".", "-"]
+            )
+            .select(["CHROM", "POS", "ALT", "REF", colname])
             .with_columns([
-                pl.col("pos").cast(pl.Int64),
-                pl.col("chr").cast(pl.Utf8).str.replace("0X", "X"),
-                pl.col("a1").str.to_uppercase(),
-                pl.col("a2").str.to_uppercase(),
-                pl.col(colname).cast(pl.Float64, strict=False)
+                pl.col("POS").cast(pl.Int64),
+                pl.col("CHROM")
+                .cast(pl.String)
+                .str.replace("^chr", "", literal=False),
+                pl.col("ALT").str.to_uppercase(),
+                pl.col("REF").str.to_uppercase(),
+                pl.col(colname)
+                .cast(pl.Float64, strict=False)
+                .clip(0.0, 1.0),
             ])
-            .rename({"chr": chr_col, "pos": pos_col, "a1": ea_col, "a2": oa_col})
-            .with_columns(pl.col(colname).clip(0.0, 1.0).alias(colname))
+            .rename({
+                "CHROM": chr_col,
+                "POS": pos_col,
+                "ALT": ea_col,
+                "REF": oa_col,
+            })
         )
-        log_print(f"✅ INFO file loaded → {info_df.height:,} variants.")
+
+        log_print(f"✅ INFO file loaded → {info_df.height:,} variants")
         return info_df
 
+
     # ===============================================================
-    # STEP 3: Merge INFO (direct + flipped)
+    # STEP 3: Merge INFO
     # ===============================================================
     info_df = load_info_file(info_file_to_use, info_col_to_use)
-
-    # Normalize alleles in df
+    #print(f"📊 INFO file loaded: {info_df.height:,} variants")
+    log_print("⏳ Merging INFO scores with GWAS data...")
+    
+    # Normalize alleles in input df
     df = df.with_columns([
-        pl.col(ea_col).cast(pl.Utf8).str.to_uppercase(),
-        pl.col(oa_col).cast(pl.Utf8).str.to_uppercase(),
+        pl.col(ea_col).cast(pl.String).str.to_uppercase(),
+        pl.col(oa_col).cast(pl.String).str.to_uppercase(),
     ])
 
-    # Direct match
+    # 3.1 Direct match
     df1 = df.join(info_df, on=[chr_col, pos_col, ea_col, oa_col], how="inner")
 
-    # Flipped match
-    info_df_flip = (
-        info_df.rename({ea_col: oa_col, oa_col: ea_col})
-        .with_columns((1.0 - pl.col(info_col_to_use)).alias(info_col_to_use))
-    )
-
+    # 3.2 Flipped match (Rename columns, DO NOT calculate 1-info)
+    info_df_flip = info_df.rename({ea_col: oa_col, oa_col: ea_col})
     df2 = df.join(info_df_flip, on=[chr_col, pos_col, ea_col, oa_col], how="inner")
 
-    # Combine & deduplicate
+    # 3.3 Combine
     df_merged = pl.concat([df1, df2], how="vertical").unique(
         subset=[chr_col, pos_col, ea_col, oa_col]
     )
 
+    #print(f"Total varinat after merging with infor file is : {df_merged.height:,} variants")
     # ===============================================================
     # STEP 4: Statistics
     # ===============================================================
+    if df_merged.height == 0:
+        log_print("⚠️ WARNING: 0 variants matched between GWAS and INFO file!")
+        # Return original DF to avoid crashing, but warn
+        return df, qc_info, sample_column_dict
+
     stats = df_merged.select([
         pl.col(info_col_to_use).min().alias("min"),
         pl.col(info_col_to_use).max().alias("max"),
@@ -192,15 +229,6 @@ def add_or_calculate_info(
         f"✅ INFO merged ({info_source}): {stats['total']:,} variants "
         f"({stats['min']:.3f}–{stats['max']:.3f}, mean={stats['mean']:.3f}, median={stats['median']:.3f})"
     )
-    log_print(
-        f"📊 Variants before={qc_info['initial_variants']:,}, after={stats['total']:,}"
-    )
     log_print("🎯 INFO harmonization complete.\n")
-
-    # -------------------------------------------------------
-    # Write log buffer to log file
-    # -------------------------------------------------------
-    with open(log_file, "w") as f:
-        f.write(log_buffer.getvalue())
 
     return df_merged, qc_info, sample_column_dict

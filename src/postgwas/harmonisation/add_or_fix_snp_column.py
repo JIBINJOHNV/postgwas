@@ -72,7 +72,7 @@ def add_or_fix_snp_column(
             ).alias(snp_col)
         )
 
-        sample_column_dict["snp_col"] = snp_col
+        sample_column_dict["snp_id_col"] = snp_col
 
     else:
         log_print(f"✅ SNP column '{snp_col}' found — cleaning and checking missing values.")

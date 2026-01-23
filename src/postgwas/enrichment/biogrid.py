@@ -60,43 +60,43 @@ def fetch_biogrid_interactions(
         return pd.DataFrame()
 
 
-# --- Main Execution ---
-if __name__ == "__main__":
-    # 1. SETUP: You MUST paste your key here
-    # Register at: https://webservice.thebiogrid.org/
-    MY_ACCESS_KEY = "86cf1c2c7c8b2972cc5e6b31c45e8584"
+# # --- Main Execution ---
+# if __name__ == "__main__":
+#     # 1. SETUP: You MUST paste your key here
+#     # Register at: https://webservice.thebiogrid.org/
+#     MY_ACCESS_KEY = "86cf1c2c7c8b2972cc5e6b31c45e8584"
     
-    my_genes = ["BRCA1", "TP53", "EGFR", "MYC"]
+#     my_genes = ["BRCA1", "TP53", "EGFR", "MYC"]
 
-    if MY_ACCESS_KEY == "PASTE_YOUR_ACCESS_KEY_HERE":
-        print("[!] Error: You must replace MY_ACCESS_KEY with a valid BioGRID key.")
-    else:
-        # 2. Fetch Data
-        df_biogrid = fetch_biogrid_interactions(my_genes, MY_ACCESS_KEY)
+#     if MY_ACCESS_KEY == "PASTE_YOUR_ACCESS_KEY_HERE":
+#         print("[!] Error: You must replace MY_ACCESS_KEY with a valid BioGRID key.")
+#     else:
+#         # 2. Fetch Data
+#         df_biogrid = fetch_biogrid_interactions(my_genes, MY_ACCESS_KEY)
 
-        if not df_biogrid.empty:
-            # 3. Filter for PHYSICAL interactions only
-            # BioGRID contains 'genetic' interactions (e.g. synthetic lethality), 
-            # which you might want to remove if you only care about binding.
-            df_phys = df_biogrid[df_biogrid['Experimental System Type'] == 'physical']
+#         if not df_biogrid.empty:
+#             # 3. Filter for PHYSICAL interactions only
+#             # BioGRID contains 'genetic' interactions (e.g. synthetic lethality), 
+#             # which you might want to remove if you only care about binding.
+#             df_phys = df_biogrid[df_biogrid['Experimental System Type'] == 'physical']
             
-            print(f"\nTotal Interactions: {len(df_biogrid)}")
-            print(f"Physical Interactions: {len(df_phys)}\n")
+#             print(f"\nTotal Interactions: {len(df_biogrid)}")
+#             print(f"Physical Interactions: {len(df_phys)}\n")
             
-            # 4. Clean up columns for display
-            # BioGRID returns A LOT of columns. Let's select the useful ones.
-            cols = [
-                'Official Symbol Interactor A', 
-                'Official Symbol Interactor B', 
-                'Experimental System Name', 
-                'Publication Source',  # Pubmed ID or Author
-                'Throughput'
-            ]
+#             # 4. Clean up columns for display
+#             # BioGRID returns A LOT of columns. Let's select the useful ones.
+#             cols = [
+#                 'Official Symbol Interactor A', 
+#                 'Official Symbol Interactor B', 
+#                 'Experimental System Name', 
+#                 'Publication Source',  # Pubmed ID or Author
+#                 'Throughput'
+#             ]
             
-            # Display Top 10
-            print(df_phys[cols].head(10).to_string(index=False))
+#             # Display Top 10
+#             print(df_phys[cols].head(10).to_string(index=False))
             
-            # OPTIONAL: Save to CSV
-            # df_phys.to_csv("biogrid_physical_interactions.csv", index=False)
-        else:
-            print("No interactions found.")
+#             # OPTIONAL: Save to CSV
+#             # df_phys.to_csv("biogrid_physical_interactions.csv", index=False)
+#         else:
+#             print("No interactions found.")

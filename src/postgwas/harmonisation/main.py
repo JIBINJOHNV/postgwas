@@ -277,13 +277,16 @@ def process_one_chromosome(
         df = pl.read_csv(chr_file, separator="\t")
         logger.info(f"Loaded {df.height:,} rows × {df.width} columns")
 
-        df = fix_chr_pos_column(
+        df,sample_column_dict = fix_chr_pos_column(
             chromosome=chromosome,
             df=df,
             sample_column_dict=sample_column_dict,
             drop_mt=True,
         )
         logger.info("Chromosome/POS columns fixed (MT dropped if present).")
+        # print(df.select(df.columns[0:8]).head())
+        # print(df.select(df.columns[8:]).head())
+        # print(sample_column_dict)
 
         # ------------------------------
         # 2. Build resource map
@@ -305,7 +308,6 @@ def process_one_chromosome(
             dbsnp=dbsnp
             )
         logger.info("Resource map constructed.")
-
         # ------------------------------
         # 3. Harmonisation steps
         # ------------------------------
@@ -320,7 +322,6 @@ def process_one_chromosome(
             external_eaf_colmap=extrnal_eaf_colmap
         )
         logger.info("EAF harmonisation completed.")
-
         df, size_qc, sample_column_dict = harmonize_sample_sizes(
             chromosome=chromosome,
             df=df,
@@ -362,18 +363,17 @@ def process_one_chromosome(
             sample_column_dict=sample_column_dict,
         )
         logger.info("Z from BETA/SE calculation completed.")
-
         df, info_qc, sample_column_dict = add_or_calculate_info(
             chromosome=chromosome,
             df=df,
             sample_column_dict=sample_column_dict,
-            default_info_file=res["default_info_file"],
-            info_file=res["user_info_file"],
-            default_info_column=res["default_info_column"],
+            info_file=res["user_info_file"],              
             info_column=res["user_info_column"],
+            default_info_file=res["default_info_file"],
+            default_info_column=res["default_info_column"],
         )
-        logger.info("INFO score harmonisation completed.")
 
+        logger.info("INFO score harmonisation completed.")
         df, sample_column_dict = add_or_fix_snp_column(
             chromosome=chromosome,
             df=df,
@@ -393,7 +393,6 @@ def process_one_chromosome(
             genome_build=grch_version,
         )
         logger.info("Exported cleaned GWAS summary statistics.")
-
         # ------------------------------
         # 5. Convert GWAS to VCF (gwastovcf)
         # ------------------------------
@@ -411,7 +410,6 @@ def process_one_chromosome(
             f"GWAS-to-VCF conversion finished with exit code {gwastovcf_exit_code}. "
             f"Command: {gwastovcf_command_str}"
         )
-
         # ------------------------------
         # 6. Annotate VCF (bcftools)
         # ------------------------------
@@ -516,20 +514,23 @@ def gwas_to_vcf_parallel(
     # ------------------------------
     # Read file + validate config
     # ------------------------------
-    df, file_cvariant_count, polars_rows = read_sumstats(
+    df, file_cvariant_count, polars_rows,sample_column_dict = read_sumstats(
         sumstat_file=sumstat_file,
         output_dir=str(output_dir_path),
+        sample_column_dict=sample_column_dict
     )
-
-    # safe_print(
-    #     f"\n📥 Reading sumstats: {sumstat_file}\n"
-    #     f"   Polars rows: {polars_rows:,} | Shell-count variants: {file_cvariant_count:,}"
-    # )
     safe_print(f"           Total variants in input file        : {file_cvariant_count:,}")
     safe_print(f"           Total variants read by the python   : {polars_rows:,}")
 
-    validate_gwas_config(sample_column_dict, df)
+    # 1. Call the function ONCE and unpack the results
+    is_valid, error_list = validate_gwas_config(sample_column_dict, df)
 
+    # 2. Check the boolean flag
+    if not is_valid:
+        print(f"\nExiting due to {len(error_list)} validation error(s):")
+        for err in error_list:
+            print(f" - {err}")
+        sys.exit(1)
     # -----------------------------
     # Genome build inference
     # ------------------------------
@@ -736,7 +737,11 @@ def run_harmonisation_pipeline(
     # Save normalized output_folder  back to dict
     output_folder = output_folder / "00_harmonised_sumstat"
     sample_column_dict["output_folder"] = str(output_folder)
-
+    # Clean whitespace from keys AND values
+    sample_column_dict = {
+        k.strip(): (v.strip() if isinstance(v, str) else v) 
+        for k, v in sample_column_dict.items()
+    }
 
     # Try to create it safely
     try:
@@ -904,11 +909,11 @@ def run_harmonisation_pipeline(
         allelefreq_diff_cutoff=0.2,
         info_cutoff=0.7,
         external_af_name=comparison_cols,
-        include_indels=True,
+        include_indels=False,
         exclude_palindromic=True,
         palindromic_af_lower=0.4,
         palindromic_af_upper=0.6,
-        remove_mhc=False,
+        remove_mhc=True,
         mhc_chrom="6",
         mhc_start=25000000,
         mhc_end=34000000,

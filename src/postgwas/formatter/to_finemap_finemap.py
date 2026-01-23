@@ -76,6 +76,6 @@ def vcf_to_finemap_finemap(sumstat_vcf: str, output_folder: str, sample_name: st
         )
 
     return {
-        "susie_input": str(output_file),
+        "finemap_input": str(output_file),
         "log_file": str(log_file),
     }

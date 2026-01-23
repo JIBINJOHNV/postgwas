@@ -90,7 +90,9 @@ RUN micromamba create -y -n enricher -c conda-forge -c bioconda \
         requests \
         networkx \
         matplotlib \
+        rich-argparse \
         scipy \
+        "numpy<2.0" \
         r-webgestaltr \
         zip \
         gprofiler-official && \
@@ -177,4 +179,3 @@ ENV HOME=/tmp
 RUN chown -R mambauser:mambauser /opt/postgwas
 USER mambauser
 ENTRYPOINT ["micromamba", "run", "-n", "postgwas"]
-CMD ["postgwas", "--help"]

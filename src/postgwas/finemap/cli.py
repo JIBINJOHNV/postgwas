@@ -14,7 +14,6 @@ import sys,os
 from pathlib import Path
 from rich_argparse import RichHelpFormatter
 
-print("RUNNING:", os.path.abspath(__file__))
 
 # =========================================================
 # BACKEND RUNNERS

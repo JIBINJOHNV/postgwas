@@ -1,15 +1,16 @@
 import polars as pl
 import pandas as pd
 import pyarrow
-import gzip, lzma, zipfile, csv, subprocess, os,json
+import gzip, lzma, zipfile, csv, subprocess, os,json,shlex
 from typing import Tuple
-from io import BytesIO
+from io import BytesIO,TextIOWrapper
 from pathlib import Path
 import shlex
 import argparse
 import sys
 import yaml
 from importlib import resources
+from postgwas.harmonisation.chr_pos_process import fix_chr_pos_column
 
 # ----------------------------------------------------------------------
 # 1. Helper: correct opener
@@ -18,7 +19,7 @@ def _opener(path: str):
     p = Path(path)
     if p.suffix.lower() == ".gz":      return gzip.open
     if p.suffix.lower() in {".xz", ".lzma"}: return lzma.open
-    if p.suffix.lower() == ".zip":     return None          # handled separately
+    if p.suffix.lower() == ".zip":     return None 
     return open
 
 
@@ -27,7 +28,7 @@ def _opener(path: str):
 # ----------------------------------------------------------------------
 def detect_delimiter(path: str) -> str:
     opener = _opener(path)
-    if opener is None:
+    if opener is None: # Zip
         try:
             with zipfile.ZipFile(path) as zf:
                 csvs = [f for f in zf.namelist() if f.lower().endswith(('.csv', '.tsv'))]
@@ -42,10 +43,9 @@ def detect_delimiter(path: str) -> str:
                 header = next((l for l in f if not l.startswith("##")), "")
         except:
             return "\t"
-    if not header.strip():
-        return "\t"
+    
+    if not header.strip(): return "\t"
     try:
-        # csv.Sniffer works best on a *single* line
         return csv.Sniffer().sniff(header, delimiters="\t,; ").delimiter
     except csv.Error:
         return "\t"
@@ -56,7 +56,7 @@ def detect_delimiter(path: str) -> str:
 # ----------------------------------------------------------------------
 def has_double_hash(path: str) -> bool:
     opener = _opener(path)
-    if opener is None:                     # .zip
+    if opener is None: # Zip
         try:
             with zipfile.ZipFile(path) as zf:
                 csvs = [f for f in zf.namelist() if f.lower().endswith(('.csv', '.tsv'))]
@@ -112,75 +112,277 @@ def count_data_lines(path: str, skip_hash: bool) -> int:
         return 0
 
 
-# ----------------------------------------------------------------------
-# 5. Main function
-# ----------------------------------------------------------------------
-def read_sumstats(sumstat_file: str,output_dir: str) -> Tuple[pl.DataFrame, int, int]:
-    os.makedirs(output_dir, exist_ok=True)
-    #print(f"Reading: {sumstat_file}")
-    # ---- delimiter ----------------------------------------------------
-    delim = detect_delimiter(sumstat_file)
-    #print(f"Delimiter: '{delim}'")
-    # ---- ## metadata --------------------------------------------------
-    skip_hash = has_double_hash(sumstat_file)
-    #print(f"{'Has' if skip_hash else 'No'} '##' metadata")
-    # ---- line count ---------------------------------------------------
-    shell_cnt = count_data_lines(sumstat_file, skip_hash)
-    if shell_cnt >= 1:
-        shell_cnt = shell_cnt - 1
 
-    #print(f"Data lines (count): {shell_cnt:,}")
-    # ---- Polars read --------------------------------------------------
-    if Path(sumstat_file).suffix.lower() == ".zip":
-        try:
+# ----------------------------------------------------------------------
+# 5. Helper: Clean Stream + Count
+# ----------------------------------------------------------------------
+def vcf_to_polars_stream(path: str) -> Tuple[BytesIO, int]:
+    """
+    1. Removes ## metadata lines.
+    2. Counts valid lines on the fly.
+    """
+    buf = BytesIO()
+    row_count = 0
+    opener = _opener(path) 
+    if opener is None and not path.endswith('.zip'): opener = open
+    try:
+        with opener(path, "rt", errors="ignore") as f:
+            for line in f:
+                if line.startswith("##"):
+                    continue
+                buf.write(line.encode("utf-8"))
+                row_count += 1
+    except Exception as e:
+        print(f"   ❌ Error streaming file: {e}")
+        return BytesIO(), 0
+    buf.seek(0)
+    data_count = max(0, row_count - 1)
+    return buf, data_count
+
+
+# ======================================================================
+# HELPER 1: DataFrame Cleanup (Headers, Types, Chromosome)
+# ======================================================================
+def clean_dataframe(df: pl.DataFrame, chr_col: str) -> pl.DataFrame:
+    """
+    Applied immediately after ANY read (Attempt 1 or Attempt 2).
+    Trims whitespace, fixes types, and standardizes chromosome column.
+    """
+    if df.height == 0: return df
+    # 1. Clean Headers
+    df = df.rename({c: c.strip() for c in df.columns})
+    # 2. Clean String Values
+    for col in df.columns:
+        if df[col].dtype in (pl.Utf8, pl.String):
+            df = df.with_columns(pl.col(col).str.strip_chars())
+    # 3. Type Conversion
+    valid_cols = []
+    for col in df.columns:
+        if col == chr_col:
+            valid_cols.append(pl.col(col)) # Skip casting for CHR
+            continue
+        numeric_series = df[col].cast(pl.Float64, strict=False)
+        if numeric_series.null_count() > df[col].null_count():
+            valid_cols.append(pl.col(col)) # Keep original if casting fails
+        else:
+            valid_cols.append(numeric_series)
+    df = df.with_columns(valid_cols)
+    # 4. Chromosome Fix (12.0 -> 12)
+    if chr_col and chr_col in df.columns:
+        df = df.with_columns(
+            pl.coalesce(
+                pl.col(chr_col).cast(pl.Float64, strict=False).cast(pl.Int64, strict=False).cast(pl.String),
+                pl.col(chr_col)
+            ).alias(chr_col)
+        )
+    return df
+
+# ======================================================================
+# HELPER 2: Validation (Is the file broken?)
+# ======================================================================
+def is_bad_parsing(df: pl.DataFrame, expected_cols: int) -> bool:
+    if df.width < 2 and expected_cols > 1: return True # Swallowed
+    if df.width > (expected_cols + 5): return True     # Ghost columns
+    if df.height > 0:
+        null_ratio = df.null_count().sum_horizontal().sum() / (df.height * df.width)
+        if null_ratio > 0.5: return True # Null flood
+    return False
+
+# ======================================================================
+# HELPER 3: Repair (Linux Shell Fix)
+# ======================================================================
+def normalize_whitespace_file(input_path: str, output_dir: str) -> str:
+    base_name = Path(input_path).name
+    while Path(base_name).suffix: base_name = Path(base_name).stem
+    clean_path = os.path.join(output_dir, f"{base_name}_cleaned.tsv")
+    if input_path.lower().endswith(".gz"): cat_cmd = "gzip -dc"
+    elif input_path.lower().endswith(".zip"): cat_cmd = "unzip -p"
+    elif input_path.lower().endswith((".xz", ".lzma")): cat_cmd = "xz -dc"
+    else: cat_cmd = "cat"
+    # Fix: zcat -> remove ## -> squeeze spaces -> tab
+    cmd = (
+        f"{cat_cmd} {shlex.quote(input_path)} | "
+        f"grep -v '^##' | "
+        f"tr -s '[:blank:]' '\\t' > {shlex.quote(clean_path)}"
+    )
+    try:
+        subprocess.run(cmd, shell=True, check=True)
+        if os.path.exists(clean_path) and os.path.getsize(clean_path) > 0:
+            return clean_path
+    except: pass
+    return ""
+
+# ======================================================================
+# HELPER 4: Header Counter
+# ======================================================================
+def get_expected_cols(path: str) -> int:
+    try:
+        # (Same opener logic as before) ...
+        opener = gzip.open if path.lower().endswith((".gz", ".bgz")) else open
+        if path.lower().endswith(".zip"): return 0
+        
+        with opener(path, "rt", errors="ignore") as f:
+            for line in f:
+                if not line.startswith("##") and line.strip():
+                    # FIX: Replace commas (and semicolons) with spaces first
+                    clean_line = line.replace(",", " ").replace(";", " ").replace("\t", " ")
+                    return len(clean_line.split())
+    except: 
+        return 0
+    return 0
+
+
+def clean_and_optimize_dataframe(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    1. Trims whitespace from ALL string columns.
+    2. Replaces empty strings "" with null (optional, but good practice).
+    3. Attempts to convert string columns that look like numbers into actual Integers/Floats.
+    """
+    return (
+        df.lazy()
+        # Step 1: Trim whitespace from all string columns
+        .with_columns(
+            pl.col(pl.String).str.strip_chars()
+        )
+        # Step 2 (Optional): Convert empty strings to null
+        .with_columns(
+            pl.col(pl.String).replace("", None)
+        )
+        # Step 3: Collect immediately to perform type inference
+        .collect()
+        # Step 4: Downcast types (e.g., String "123" -> Int64)
+        .select(pl.all().shrink_dtype())
+    )
+# ======================================================================
+# MAIN FUNCTION
+# ======================================================================
+def read_sumstats(sumstat_file: str, output_dir: str, sample_column_dict: dict) -> Tuple[pl.DataFrame, int, int]:
+    chr_col = sample_column_dict.get("chr_col")
+    chr_pos_col = sample_column_dict.get("chr_pos_col")
+    os.makedirs(output_dir, exist_ok=True)
+    # Pre-flight Checks
+    delim = detect_delimiter(sumstat_file)
+    skip_hash = has_double_hash(sumstat_file)
+    expected_cols = get_expected_cols(sumstat_file)
+    df = pl.DataFrame()
+    shell_cnt = 0
+    # ------------------------------------------------------------------
+    # ATTEMPT 1: Optimistic Read (YOUR ORIGINAL LOGIC)
+    # ------------------------------------------------------------------
+    try:
+        if Path(sumstat_file).suffix.lower() == ".zip":
+            # ZIP Handling
             with zipfile.ZipFile(sumstat_file) as zf:
                 csvs = [f for f in zf.namelist() if f.lower().endswith(('.csv', '.tsv'))]
-                if not csvs:
-                    raise ValueError("No CSV/TSV in .zip")
-                if len(csvs) > 1:
-                    print(f"Multiple files; using: {csvs[0]}")
+                if not csvs: raise ValueError("No CSV/TSV in .zip")
                 txt = zf.read(csvs[0]).decode(errors="ignore")
+                lines = txt.splitlines()
+                if skip_hash:
+                    lines = [l for l in lines if not l.startswith("##")]
+                shell_cnt = max(0, len(lines) - 1)
+                clean_txt = "\n".join(lines)
                 df = pl.read_csv(
-                    BytesIO(txt.encode("utf-8")),
+                    BytesIO(clean_txt.encode("utf-8")),
                     separator=delim,
-                    comment_prefix="##" if skip_hash else None,
                     has_header=True,
+                    quote_char=None,
+                    infer_schema_length=0,
                     ignore_errors=True,
                     null_values=["NA", "na", ".", ""],
                     truncate_ragged_lines=True,
                 )
-        except Exception as e:
-            raise RuntimeError(f"Failed to read .zip: {e}")
-    else:
-        try:
-            df = pl.read_csv(
-                sumstat_file,
-                separator=delim,
-                comment_prefix="##" if skip_hash else None,
-                has_header=True,
-                ignore_errors=True,
-                null_values=["NA", "na", ".", ""],
-                truncate_ragged_lines=True,
-            )
-        except Exception as e:
-            raise RuntimeError(f"Polars failed: {e}")
-    #print("Polars read successful")
-    # ---- clean --------------------------------------------------------
-    df = df.rename({c: c.strip() for c in df.columns})
-    for col in df.columns:
-        if df[col].dtype in (pl.Utf8, pl.String):
-            df = df.with_columns(pl.col(col).str.strip_chars())
-    # ---- QC -----------------------------------------------------------
-    polars_rows = df.height
-    #print(f"Final DataFrame: {polars_rows:,} rows × {len(df.columns)} columns")
-    #print(f"QC → Shell count: {shell_cnt:,} | Polars rows: {polars_rows:,}")
-    if abs(shell_cnt - polars_rows) > 1:
-        print(
-            f"⚠️ Warning: Mismatch between shell line-count ({shell_cnt}) and Polars row-count ({polars_rows}).\n"
-            "   • This is usually expected when one method counts the header line and the other does not.\n"
-            "   • If the difference is large, please verify the input file for formatting issues.\n"
+        else:
+            # GZ / XZ / Text Handling
+            if skip_hash:
+                source, shell_cnt = vcf_to_polars_stream(sumstat_file)
+                df = pl.read_csv(
+                    source,
+                    separator=delim,
+                    has_header=True,
+                    quote_char=None,
+                    infer_schema_length=0,
+                    ignore_errors=True,
+                    null_values=["NA", "na", ".", ""],
+                    truncate_ragged_lines=True,
+                )
+            else:
+                shell_cnt = count_data_lines(sumstat_file, skip_hash=False)
+                if shell_cnt >= 1: shell_cnt -= 1
+                df = pl.read_csv(
+                    sumstat_file,
+                    separator=delim,
+                    has_header=True,
+                    quote_char=None,
+                    infer_schema_length=0,
+                    ignore_errors=True,
+                    null_values=["NA", "na", ".", ""],
+                    truncate_ragged_lines=True,
+                )
+        df=clean_and_optimize_dataframe(df)
+        df,sample_column_dict=fix_chr_pos_column( chromosome="All_Chrs",
+            df=df,sample_column_dict=sample_column_dict,drop_mt=True)
+        df = clean_dataframe(df, chr_col)
+    except Exception as e:
+        print(f"\t\t\t ⚠️ Attempt 1 Error: {e}")
+        df = pl.DataFrame()
+    # ------------------------------------------------------------------
+    # ATTEMPT 2: Validation & Repair (If Attempt 1 was messy)
+    # ------------------------------------------------------------------
+    if is_bad_parsing(df, expected_cols):
+        print(f"\t\t\t⚠️  Standard parsing failed (Rows: {df.height}, Cols: {df.width}). Switching to Repair Mode...")
+        # 1. Run Repair Tool
+        clean_file = normalize_whitespace_file(sumstat_file, output_dir)
+        if clean_file:
+            print(f"\t\t\t🔄 Reading repaired file: {clean_file}")
+            try:
+                # 2. Re-read (Force Tab Separator)
+                df = pl.read_csv(
+                    clean_file, 
+                    separator="\t", 
+                    has_header=True, 
+                    null_values=["NA", "na", ".", ""], 
+                    truncate_ragged_lines=True
+                )
+                # 3. Cleanup Again (Clean Headers/Types on new DF)
+                df,sample_column_dict=fix_chr_pos_column( chromosome="All_Chrs",
+                    df=df,sample_column_dict=sample_column_dict,drop_mt=True)
+                df = clean_dataframe(df, chr_col)
+                # 4. Update Counts
+                shell_cnt = df.height
+                print(f"\t\t\t✅ Recovery Successful: {df.height} rows loaded.")
+            except Exception as e:
+                print(f"❌ Failed to read repaired file: {e}")
+        else:
+            print("❌ Repair failed (could not create clean file).")
+    chr_col = sample_column_dict.get("chr_col")
+    pos_col = sample_column_dict.get("pos_col")
+    # Filter to ensure we only touch columns that actually exist in this dataframe
+    cols_to_fix = []
+    # 1. Fix Chromosome: Float(12.0) -> Int(12) -> Str("12")
+    if chr_col in df.columns:
+        cols_to_fix.append(
+            pl.col(chr_col).cast(pl.Float64, strict=False).cast(pl.Int64, strict=False).cast(pl.String)
         )
-    return df, shell_cnt, polars_rows
+    # 2. Fix Position: Float(1.5e7) -> Int(15000000)
+    if pos_col in df.columns:
+        cols_to_fix.append(
+            pl.col(pos_col).cast(pl.Float64, strict=False).cast(pl.Int64, strict=False)
+        )
+    # 3. Apply all fixes at once
+    if cols_to_fix:
+        df = df.with_columns(cols_to_fix)
+    # ------------------------------------------------------------------
+    # FINAL QC & RETURN
+    # ------------------------------------------------------------------
+    # Stop if empty (checking after all attempts)
+    if df.height < 5:
+        print(f"⚠️  WARNING: File is empty or has too few rows ({df.height}). Exiting.")
+        return df, shell_cnt, df.height
+    # QC Warning
+    if abs(shell_cnt - df.height) > 1:
+        print(f"⚠️ Warning: Mismatch between line-count ({shell_cnt}) and Polars rows ({df.height}).")
+    return df, shell_cnt, df.height,sample_column_dict
+
 
 
 
@@ -205,7 +407,10 @@ def find_resource_file_path(input_file, resource_folder, grch_version, chromosom
     # 2) User gave a full path
     if os.path.exists(input_file):
         return input_file
-
+    
+    if os.path.exists(f"{input_file}_chr{chromosome}.tsv.gz"):
+        return f"{input_file}_chr{chromosome}.tsv.gz"
+    
     # 3) Construct the standard resource path (EXACT pattern you gave)
     constructed_path = (
         f"{resource_folder}/{grch_version}/external_af/vcf_files/"
@@ -218,10 +423,8 @@ def find_resource_file_path(input_file, resource_folder, grch_version, chromosom
     # 4) Nothing found
     print(f"⚠️ Warning: No valid EAF file found for '{input_file}'.")
     print(f"   Tried full path      : {input_file}")
-    print(f"   Tried constructed path: {constructed_path}")
+    print(f"   Tried constructed path: {input_file}_chr{chromosome}.tsv.gz")
     return "NA"
-
-
 
 
 

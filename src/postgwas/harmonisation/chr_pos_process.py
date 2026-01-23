@@ -15,12 +15,10 @@ def fix_chr_pos_column(
     Process chromosome and position columns in a GWAS DataFrame.
     Automatically splits chr_pos_col if needed and normalizes chromosome labels.
     Converts 23→X, 24→Y, optionally removes MT/25.
-    
     Multiprocessing-safe version:
         • No stdout printing
         • All prints go to logs/<gwas>_chr{chromosome}_chrpos.log
     """
-
     # -------------------------------------------------------
     # Setup logfile
     # -------------------------------------------------------
@@ -129,6 +127,28 @@ def fix_chr_pos_column(
     else:
         df = df.filter(~pl.col(chr_col).is_null())
 
+    chr_col = sample_column_dict.get("chr_col")
+    pos_col = sample_column_dict.get("pos_col")
+
+    # Filter to ensure we only touch columns that actually exist in this dataframe
+    cols_to_fix = []
+
+    # 1. Fix Chromosome: Float(12.0) -> Int(12) -> Str("12")
+    if chr_col in df.columns:
+        cols_to_fix.append(
+            pl.col(chr_col).cast(pl.Float64, strict=False).cast(pl.Int64, strict=False).cast(pl.String)
+        )
+
+    # 2. Fix Position: Float(1.5e7) -> Int(15000000)
+    if pos_col in df.columns:
+        cols_to_fix.append(
+            pl.col(pos_col).cast(pl.Float64, strict=False).cast(pl.Int64, strict=False)
+        )
+
+    # 3. Apply all fixes at once
+    if cols_to_fix:
+        df = df.with_columns(cols_to_fix)
+
     log_print(f"✅ Chromosome normalization complete — {df.height:,} rows remain.\n")
 
     # -------------------------------------------------------
@@ -136,5 +156,7 @@ def fix_chr_pos_column(
     # -------------------------------------------------------
     with open(log_file, "w") as f:
         f.write(log_buffer.getvalue())
+        
+    return df,sample_column_dict
 
-    return df
+

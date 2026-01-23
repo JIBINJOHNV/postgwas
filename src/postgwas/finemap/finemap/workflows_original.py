@@ -29,27 +29,6 @@ from postgwas.finemap.finemap.parser import (
 
 from postgwas.finemap.finemap.merge_results import process_finemap_output
 
-def setup_logging(log_file=None, verbose=True):
-    """
-    Configures logging. 
-    - If log_file is provided, writes to that file (FileHandler).
-    - Always writes to Console (StreamHandler).
-    - Uses force=True to reset handlers in subprocesses.
-    """
-    handlers = [logging.StreamHandler(sys.stdout)]
-    if log_file:
-        handlers.append(logging.FileHandler(log_file, mode='w'))
-
-    logging.basicConfig(
-        level=logging.INFO if verbose else logging.WARNING,
-        # Standard format string (tabs are hidden inside asctime)
-        format="%(asctime)s | %(levelname)s | %(message)s",
-        # Tabs are defined here
-        datefmt="\t\t\t\t%H:%M:%S", 
-        handlers=handlers,
-        force=True
-    )
-
 # Configure Logger
 logger = logging.getLogger("postgwas.finemap")
 
@@ -79,89 +58,127 @@ def process_single_locus(task):
     """
     locus_id = task["locus_id"]
     out_dir = task["out_dir"]
-    
-    # 1. Create unique directory for this locus
-    locus_dir = out_dir / locus_id
-    locus_dir.mkdir(parents=True, exist_ok=True)
-
-    # --------------------------------------------------
-    # FIX: SETUP PER-JOB LOGGING
-    # --------------------------------------------------
-    # This log file will exist INSIDE the locus folder
-    job_log_file = locus_dir / f"{locus_id}_debug.log"
-    setup_logging(log_file=job_log_file)
-    
-    logger.info(f"🚀 Started analysis for locus: {locus_id}")
-    
-    # ... (Rest of your variable setup) ...
-    z_file_src = task["z_file"]
-    snp_file_src = task["snp_file"]
+    z_file_src = task["z_file"]     # Path to pre-sliced .z file
+    snp_file_src = task["snp_file"] # Path to pre-sliced .snp file
     ld_ref_prefix = task["ld_ref"]
     n_samples = task["n_samples"]
-    config = task["finemap_config"]
-
+    config = task["finemap_config"] # Dict of CLI args
+    
     try:
+        # Create unique directory for this locus
+        locus_dir = out_dir / locus_id
+        locus_dir.mkdir(parents=True, exist_ok=True)
+
+        # --------------------------------------------------
         # A. Setup File Paths
+        # --------------------------------------------------
+        # Inputs (Copy to locus dir)
         z_file      = locus_dir / f"{locus_id}.z"
         snp_file    = locus_dir / f"{locus_id}.snp"
-        # ... (rest of paths) ...
+        
+        # Intermediate (PLINK/BGEN)
         plink_out   = locus_dir / f"{locus_id}_plink"
         bgen_prefix = locus_dir / f"{locus_id}_genotypes"
         bgen_file   = locus_dir / f"{locus_id}_genotypes.bgen"
         bgi_file    = locus_dir / f"{locus_id}_genotypes.bgen.bgi"
+        
+        # Intermediate (LDstore)
         ldstore_master = locus_dir / f"{locus_id}.ldstore.master"
         bcor_file      = locus_dir / f"{locus_id}.bcor"
         ld_matrix      = locus_dir / f"{locus_id}.ld"
+        
+        # Outputs (FINEMAP)
         master_file = locus_dir / f"{locus_id}.master"
-        config_file = locus_dir / f"{locus_id}.config"
-        cred_file   = locus_dir / f"{locus_id}.cred"
-        log_file    = locus_dir / f"{locus_id}.log" # This is FINEMAP's internal log
+        config_file = locus_dir / f"{locus_id}.config" # Output by finemap
+        cred_file   = locus_dir / f"{locus_id}.cred"   # Output by finemap
+        log_file    = locus_dir / f"{locus_id}.log"    # Output by finemap
 
-        # Copy inputs
+        # Copy pre-sliced inputs to working dir
         shutil.copy(z_file_src, z_file)
         shutil.copy(snp_file_src, snp_file)
 
-        # ... (Run PLINK/LDStore/Finemap Logic) ...
+        # --------------------------------------------------
+        # B. LD Generation Pipeline
+        # --------------------------------------------------
         
-        # 1. PLINK Extraction
-        run_plink_extraction(ld_ref_prefix, snp_file, plink_out)
-        
-        # 2. PLINK -> BGEN
+        # 1. PLINK Extraction (Ref -> BED)
+        try:
+            run_plink_extraction(ld_ref_prefix, snp_file, plink_out)
+        except RuntimeError as e:
+            if "Exit status 13" in str(e) or "No variants" in str(e):
+                return f"⚠️ {locus_id}: Skipped (0 variants matched Reference Panel IDs)"
+            raise e
+
+        # 2. PLINK Export (BED -> BGEN 8-bit)
         run_plink_to_bgen(plink_out, bgen_prefix)
-        
+
         # 3. Index BGEN
         run_bgen_indexing(bgen_file)
 
-        # 4. Ref Sample Size
+        # 4. Determine LD Reference Sample Size
         fam_file = Path(f"{ld_ref_prefix}.fam")
+        if not fam_file.exists():
+            raise FileNotFoundError(f"Reference .fam file not found at: {fam_file}\nCheck your --finemap_ld_ref path.")
+            
         with open(fam_file, 'rb') as f:
             n_ld_samples = sum(1 for _ in f)
 
-        # 5. LDStore Master & Run
-        create_ldstore_master(ldstore_master, z_file, bgen_file, bgi_file, bcor_file, ld_matrix, n_ld_samples)
+        # 5. Create LDstore Master File
+        create_ldstore_master(
+            master_path=ldstore_master,
+            z_file=z_file,
+            bgen_file=bgen_file,
+            bgi_file=bgi_file,
+            bcor_file=bcor_file,
+            ld_matrix=ld_matrix,
+            n_samples=n_ld_samples
+        )
+
+        # 6. Run LDstore
         run_ldstore(ldstore_master, n_threads=1) 
 
-        # 6. Adjust N Causal & Run Finemap
+        # --------------------------------------------------
+        # C. Run FINEMAP (With Logic Fix)
+        # --------------------------------------------------
+        
+        # FIX: Check actual number of SNPs available
         with open(snp_file, 'r') as f:
+            # Count non-empty lines
             n_snps_available = sum(1 for line in f if line.strip())
             
+        # Create a local config copy so we don't mess up other workers
         local_config = config.copy()
+        
+        # Dynamic Adjustment: n_causal_snps cannot exceed total SNPs
         if n_snps_available < local_config["n_causal_snps"]:
             local_config["n_causal_snps"] = n_snps_available
             
-        create_finemap_master(master_file, z_file, ld_matrix, snp_file, config_file, cred_file, log_file, n_samples)
+        # 1. Create FINEMAP Master File
+        create_finemap_master(
+            master_path=master_file,
+            z_file=z_file,
+            ld_file=ld_matrix,
+            snp_file=snp_file,
+            config_file=config_file,
+            cred_file=cred_file,
+            log_file=log_file,
+            n_samples=n_samples
+        )
+
+        # 2. Execute Binary using the ADJUSTED config
         success, msg = run_finemap_binary(master_file, local_config, n_threads=1)
 
         if not success:
-            logger.error(f"Finemap Binary Failed: {msg}")
             return f"⚠️ {locus_id}: {msg}"
 
-        # Cleanup
+        # --------------------------------------------------
+        # D. Cleanup
+        # --------------------------------------------------
         for f in [plink_out.with_suffix(".bed"), plink_out.with_suffix(".bim"), 
                   plink_out.with_suffix(".fam"), bgen_file, bgi_file, bcor_file]:
-            if f.exists(): f.unlink()
+            if f.exists():
+                f.unlink()
 
-        logger.info(f"✅ Successfully finished {locus_id}")
         return {
             "status": "success",
             "locus_id": locus_id,
@@ -170,8 +187,8 @@ def process_single_locus(task):
         }
 
     except Exception as e:
-        logger.error(f"❌ Worker Failed: {e}")
         return f"❌ {locus_id} Failed: {str(e)}"
+
 
 
 
@@ -420,22 +437,10 @@ def run_finemap_pipeline(args):
     """
     Main driver. Coordinates the pipeline steps.
     """
-    # --------------------------------------------------
-    # FIX: SETUP MAIN PIPELINE LOGGING
-    # --------------------------------------------------
-    outdir = Path(args.outdir).resolve()
-    # Create dir early so we can write the log
-    outdir.mkdir(parents=True, exist_ok=True) 
-    
-    main_log_file = outdir / "pipeline_summary.log"
-    setup_logging(log_file=main_log_file)
-    
-    logger.info("✅ Pipeline Started. Main log writing to: pipeline_summary.log")
-    
     start_time = time()
     check_dependencies()
     
-    # 1. Setup (Already created outdir, but create subdirs)
+    # 1. Setup
     dirs = setup_directories(args.outdir)
     
     # 2. Data Prep
@@ -447,6 +452,7 @@ def run_finemap_pipeline(args):
     logger.info(f"Prepared {len(tasks)} loci for parallel analysis.")
 
     # 4. Execution (Memory Aware)
+    # Get RAM in GB
     try:
         mem_gb = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') / (1024.**3)
     except:
@@ -454,14 +460,12 @@ def run_finemap_pipeline(args):
 
     max_workers = max(1, min(
         getattr(args, "threads", os.cpu_count()), 
-        int(mem_gb // 14) 
+        int(mem_gb // 14) # 14GB per worker limit
     ))
 
     logger.info(f"Launching {len(tasks)} tasks with {max_workers} workers...")
     
     successful_results = []
-    
-    # spawn is required for robust logging in multiprocessing
     with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp.get_context("spawn")) as executor:
         futures = [executor.submit(process_single_locus, t) for t in tasks]
         
@@ -478,8 +482,6 @@ def run_finemap_pipeline(args):
     # 5. Finalize
     process_finemap_output(raw_dir=dirs["loci"], inter_dir=str(dirs["inter"]), final_dir=str(dirs["flames"]))
     
-    logger.info(f"🎉 Pipeline finished in {time() - start_time:.2f} seconds.")
-
     return {
         "status": "success",
         "output_dir": str(dirs["root"]),

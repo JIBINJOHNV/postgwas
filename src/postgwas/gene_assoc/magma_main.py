@@ -129,7 +129,7 @@ def run_magma_analysis(
         f"({'single run' if num_batches == 1 else f'{num_batches} batches'})..."
     )
     print(
-        f"                  🔹 [Step 2/4] Running MAGMA gene analysis "
+        f"                 🔹 [Step 2/4] Running MAGMA gene analysis "
         f"({'single run' if num_batches == 1 else f'{num_batches} batches'})..."
     )
 

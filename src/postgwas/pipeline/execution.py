@@ -51,8 +51,8 @@ def execute_pipeline(args, modules):
 
     # E. Formatter (Run 2: Prepares inputs for Analysis tools)
     # Logic: If we ran imputation, we usually need to re-run formatter for downstream tools.
-    downstream_tools = ["finemap", "magma", "magmacovar", "pops", "flames", "ld_clump", "heritability"]
-    
+    downstream_tools = ["ld_clump", "magma", "magmacovar", "pops", "finemap", "flames", "heritability"]
+
     if is_imputing and any(m in modules for m in downstream_tools):
         # Allow duplicate formatter execution if needed
         if "formatter" in execution_chain: 
@@ -74,10 +74,10 @@ def execute_pipeline(args, modules):
     if "flames" in modules:
         # FLAMES Suite dependencies
         add_unique("ld_clump")
-        add_unique("finemap")
         add_unique("magma")
         add_unique("magmacovar")
         add_unique("pops")
+        add_unique("finemap")
         add_unique("flames")
     
     else:

@@ -505,17 +505,40 @@ def get_VEP(creds, genes, prob_col, build):
 
 
 # run vep in environment
+# def run_vep_within_environment(
+#     input_file, output_file, vep_path, vep_cache, build,
+# ):
+#     if build.upper() == "GRCH38" or build.upper() == "HG38":
+#         build = "GRCh38"
+#     else:
+#         build = "GRCh37"
+#     vep_command = f"{vep_path} -i {input_file} -o {output_file} --cache {vep_cache} --assembly {build} --offline --force_overwrite"
+#     subprocess.run(vep_command, shell=True, check=True)
+#     return
+
 def run_vep_within_environment(
     input_file, output_file, vep_path, vep_cache, build,
 ):
+
+    # --- Correct placement: Inside the function body ---
+    print("\t\t\t run_vep_within_environment function")
+    # --- 1. Set Default Path if Empty ---
+    if not vep_path:
+        vep_path = "/opt/conda/envs/vep/bin/vep"
+
+    # --- 2. Build Logic (Unchanged) ---
     if build.upper() == "GRCH38" or build.upper() == "HG38":
         build = "GRCh38"
     else:
         build = "GRCh37"
+        
     vep_command = f"{vep_path} -i {input_file} -o {output_file} --cache {vep_cache} --assembly {build} --offline --force_overwrite"
-    subprocess.run(vep_command, shell=True, check=True)
-    return
 
+    # --- 3. Environment Wrapper ---
+    full_command = f"micromamba run -n vep {vep_command}"
+
+    subprocess.run(full_command, shell=True, check=True)
+    return
 
 def cmd_VEP(
     creds, genes, prob_col, build, VEP_path, VEP_cache, outdir
