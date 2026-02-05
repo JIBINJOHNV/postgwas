@@ -137,6 +137,35 @@ def export_gwas_sumstat(
     # Cast to string for safe writing
     df2 = df2.with_columns([pl.col(c).cast(pl.Utf8) for c in df2.columns])
 
+    # Extract column names from your dictionary
+    se_col_name = sample_column_dict['se_col']
+    beta_col_name = sample_column_dict['beta_col']
+
+    # Ensure columns are floats before filtering
+    df2 = df2.with_columns([
+        pl.col(se_col_name).cast(pl.Float64, strict=False),
+        pl.col(beta_col_name).cast(pl.Float64, strict=False)
+    ])
+
+    old_count=len(df2)
+    # Apply filtering
+    df2 = df2.filter(
+        # --- Standard Error Checks ---
+        (pl.col(se_col_name) > 0) &                # Removes 0.0 and negatives (CRITICAL for FINEMAP)
+        (pl.col(se_col_name).is_not_null()) &      # Removes NaNs/None
+        (pl.col(se_col_name).is_finite()) &        # Removes Infinity (Inf)
+        # --- Beta Checks ---
+        (pl.col(beta_col_name).is_not_null()) &    # Removes NaNs/None
+        (pl.col(beta_col_name).is_finite()) &       # Removes Infinity (Inf)
+        (pl.col(beta_col_name) != 0.0)
+    )
+    new_count=len(df2)
+
+    # (Optional) Check how many were dropped
+    n_dropped = old_count - new_count
+    if n_dropped > 0:
+        print(f"\t\t\t\t Dropped {n_dropped} variants due to invalid '{se_col_name}' or '{beta_col_name}' values from chromosome{chromosome}.")
+        
     # -------------------------------------------------------
     # Prepare output folder
     # -------------------------------------------------------

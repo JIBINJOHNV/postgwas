@@ -212,6 +212,51 @@ def run_parallel_susie(args):
     output_folder = Path(args.outdir)
     output_folder.mkdir(parents=True, exist_ok=True)
 
+
+    # 2. Data Prep
+    try:
+        # sep=None with engine='python' is great for auto-detecting delimiters
+        loci_df = pd.read_csv(args.locus_file, sep=None, engine="python")
+    except Exception as e:
+        sys.exit(f"ERROR: Could not read locus file: {e}")
+
+    # Clean column names (strip whitespace and uppercase)
+    loci_df.columns = [x.strip().upper() for x in loci_df.columns]
+    flank_bp = int(args.window_kb * 1000)
+
+    if args.locus_type == "point":
+        if 'POS' in loci_df.columns and "CHR" in loci_df.columns:
+            # 1. Ensure POS is numeric to avoid calculation errors
+            loci_df['POS'] = pd.to_numeric(loci_df['POS'])
+            
+            # 2. Use .clip(lower=0) to ensure coordinates aren't negative
+            # 3. Cast to int to ensure clean TSV output (no .0 decimals in coordinates)
+            loci_df['START'] = (loci_df['POS'] - flank_bp).clip(lower=0).astype(int)
+            loci_df['END'] = (loci_df['POS'] + flank_bp).astype(int)
+            
+            print(f"[*] Created ±{args.window_kb}kb windows around POS column.")
+            
+            # 4. Fix string formatting: use f-string with quotes correctly
+            # We use os.path.splitext to avoid "file.csv.tsv" names
+            base_path = os.path.splitext(args.locus_file)[0]
+            modified_name = f"{base_path}_windows.tsv"
+            
+            loci_df.to_csv(modified_name, sep="\t", index=False)
+            args.locus_file = modified_name
+        else:
+            sys.exit(f"ERROR: locus_type is 'point', but 'POS' or 'CHR' columns are missing. Found: {list(loci_df.columns)}")
+    elif args.locus_type == "range":
+        required = ["CHR", "START", "END"]
+        if all(col in loci_df.columns for col in required):
+            # Ensure START/END are integers even in range mode
+            loci_df['START'] = pd.to_numeric(loci_df['START']).astype(int)
+            loci_df['END'] = pd.to_numeric(loci_df['END']).astype(int)
+            print("[*] Using exact CHR, START, END coordinates from file.")
+        else:
+            sys.exit(f"ERROR: locus_type is 'range', but 'CHR', 'START', or 'END' columns are missing. Found: {list(loci_df.columns)}")
+    print(f"The locus file used in the analysis is {args.locus_file}")
+
+
     # ---- split locus file
     locus_chunk_dir = output_folder / "locus_chunks"
     locus_chunks = split_locus_file(

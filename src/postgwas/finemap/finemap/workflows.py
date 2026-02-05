@@ -421,10 +421,9 @@ def run_finemap_pipeline(args):
     Main driver. Coordinates the pipeline steps.
     """
     # --------------------------------------------------
-    # FIX: SETUP MAIN PIPELINE LOGGING
+    # SETUP MAIN PIPELINE LOGGING
     # --------------------------------------------------
     outdir = Path(args.outdir).resolve()
-    # Create dir early so we can write the log
     outdir.mkdir(parents=True, exist_ok=True) 
     
     main_log_file = outdir / "pipeline_summary.log"
@@ -435,12 +434,44 @@ def run_finemap_pipeline(args):
     start_time = time()
     check_dependencies()
     
-    # 1. Setup (Already created outdir, but create subdirs)
+    # 1. Setup
     dirs = setup_directories(args.outdir)
     
     # 2. Data Prep
+    # load_and_prep_inputs returns Polars DataFrames
     loci_df, sumstats_filt, ld_ref_prefix = load_and_prep_inputs(args)
     
+    # Clean column names (Polars way to strip whitespace)
+    loci_df = loci_df.select([pl.col(c).alias(c.strip()) for c in loci_df.columns])
+    
+    flank_bp = int(args.window_kb * 1000)
+
+    # --------------------------------------------------
+    # NATIVE POLARS WINDOWING LOGIC
+    # --------------------------------------------------
+    if args.locus_type == "point":
+        if 'POS' in loci_df.columns and "CHR" in loci_df.columns:
+            loci_df = loci_df.with_columns([
+                (pl.col("POS") - flank_bp).clip(lower_bound=0).alias("START"),
+                (pl.col("POS") + flank_bp).alias("END")
+            ])
+            logger.info(f"[*] Created ±{args.window_kb}kb windows around POS column.")
+        else:
+            sys.exit(f"ERROR: locus_type is 'point', but 'POS' or 'CHR' columns missing.")
+
+    elif args.locus_type == "range":
+        if all(col in loci_df.columns for col in ["CHR", "START", "END"]):
+            if flank_bp > 0:
+                loci_df = loci_df.with_columns([
+                    (pl.col("START") - flank_bp).clip(lower_bound=0).alias("START"),
+                    (pl.col("END") + flank_bp).alias("END")
+                ])
+                logger.info(f"[*] Extended START/END ranges by {args.window_kb}kb flank.")
+            else:
+                logger.info("[*] Using exact CHR, START, END coordinates from file.")
+        else:
+            sys.exit(f"ERROR: locus_type is 'range', but 'CHR', 'START', or 'END' columns missing.")
+            
     # 3. Task Generation
     logger.info("Generating tasks...")
     tasks = generate_tasks(loci_df, sumstats_filt, ld_ref_prefix, dirs, args)
@@ -448,10 +479,15 @@ def run_finemap_pipeline(args):
 
     # 4. Execution (Memory Aware)
     try:
-        mem_gb = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') / (1024.**3)
-    except:
-        mem_gb = 16
+        import psutil
+        mem_gb = psutil.virtual_memory().total / (1024.**3)
+    except ImportError:
+        try:
+            mem_gb = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') / (1024.**3)
+        except:
+            mem_gb = 16
 
+    # Heuristic: ~14GB per worker for safety during LD calculation
     max_workers = max(1, min(
         getattr(args, "threads", os.cpu_count()), 
         int(mem_gb // 14) 
@@ -461,19 +497,22 @@ def run_finemap_pipeline(args):
     
     successful_results = []
     
-    # spawn is required for robust logging in multiprocessing
+    # Use "spawn" context for stability with C-libraries
     with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp.get_context("spawn")) as executor:
         futures = [executor.submit(process_single_locus, t) for t in tasks]
         
         for i, fut in enumerate(as_completed(futures)):
-            result = fut.result()
-            if isinstance(result, dict) and result.get("status") == "success":
-                successful_results.append(result)
-                if (i + 1) % 5 == 0:
-                    logger.info(f"[{i+1}/{len(tasks)}] Locus {result['locus_id']} finished.")
-            else:
-                level = logging.WARNING if "Skipped" in str(result) else logging.ERROR
-                logger.log(level, f"[{i+1}/{len(tasks)}] {result}")
+            try:
+                result = fut.result()
+                if isinstance(result, dict) and result.get("status") == "success":
+                    successful_results.append(result)
+                    if (i + 1) % 5 == 0:
+                        logger.info(f"[{i+1}/{len(tasks)}] Locus {result['locus_id']} finished.")
+                else:
+                    level = logging.WARNING if "Skipped" in str(result) else logging.ERROR
+                    logger.log(level, f"[{i+1}/{len(tasks)}] {result}")
+            except Exception as e:
+                logger.error(f"Worker failed with error: {e}")
 
     # 5. Finalize
     process_finemap_output(raw_dir=dirs["loci"], inter_dir=str(dirs["inter"]), final_dir=str(dirs["flames"]))
@@ -485,6 +524,101 @@ def run_finemap_pipeline(args):
         "output_dir": str(dirs["root"]),
         "flames_input": str(dirs["flames"]),
     }
+
+# def run_finemap_pipeline(args):
+#     """
+#     Main driver. Coordinates the pipeline steps.
+#     """
+#     # --------------------------------------------------
+#     # FIX: SETUP MAIN PIPELINE LOGGING
+#     # --------------------------------------------------
+#     outdir = Path(args.outdir).resolve()
+#     # Create dir early so we can write the log
+#     outdir.mkdir(parents=True, exist_ok=True) 
+    
+#     main_log_file = outdir / "pipeline_summary.log"
+#     setup_logging(log_file=main_log_file)
+    
+#     logger.info("✅ Pipeline Started. Main log writing to: pipeline_summary.log")
+    
+#     start_time = time()
+#     check_dependencies()
+    
+#     # 1. Setup (Already created outdir, but create subdirs)
+#     dirs = setup_directories(args.outdir)
+    
+#     # 2. Data Prep
+#     loci_df, sumstats_filt, ld_ref_prefix = load_and_prep_inputs(args)
+    
+#     # Clean column names
+#     loci_df.columns = [x.strip() for x in loci_df.columns]
+#     flank_bp = args.window_kb * 1000
+
+#     if args.locus_type == "point":
+#         if 'POS' in loci_df.columns and "CHR" in loci_df.columns:
+#             # Use max(0, ...) to ensure the start coordinate is never negative
+#             loci_df['START'] = (loci_df['POS'] - flank_bp).clip(lower=0)
+#             loci_df['END'] = loci_df['POS'] + flank_bp
+#             print(f"[*] Created ±{args.window_kb}kb windows around POS column.")
+#         else:
+#             sys.exit(f"ERROR: locus_type is 'point', but 'POS' or 'CHR' columns are missing. Found: {list(loci_df.columns)}")
+
+#     elif args.locus_type == "range":
+#         if all(col in loci_df.columns for col in ["CHR", "START", "END"]):
+#             # If a window_kb is provided in range mode, extend the existing boundaries
+#             if flank_bp > 0:
+#                 loci_df['START'] = (loci_df['START'] - flank_bp).clip(lower=0)
+#                 loci_df['END'] = loci_df['END'] + flank_bp
+#                 print(f"[*] Extended START/END ranges by {args.window_kb}kb flank.")
+#             else:
+#                 print("[*] Using exact CHR, START, END coordinates from file.")
+#         else:
+#             sys.exit(f"ERROR: locus_type is 'range', but 'CHR', 'START', or 'END' columns are missing. Found: {list(loci_df.columns)}")
+            
+#     # 3. Task Generation
+#     logger.info("Generating tasks...")
+#     tasks = generate_tasks(loci_df, sumstats_filt, ld_ref_prefix, dirs, args)
+#     logger.info(f"Prepared {len(tasks)} loci for parallel analysis.")
+
+#     # 4. Execution (Memory Aware)
+#     try:
+#         mem_gb = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') / (1024.**3)
+#     except:
+#         mem_gb = 16
+
+#     max_workers = max(1, min(
+#         getattr(args, "threads", os.cpu_count()), 
+#         int(mem_gb // 14) 
+#     ))
+
+#     logger.info(f"Launching {len(tasks)} tasks with {max_workers} workers...")
+    
+#     successful_results = []
+    
+#     # spawn is required for robust logging in multiprocessing
+#     with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp.get_context("spawn")) as executor:
+#         futures = [executor.submit(process_single_locus, t) for t in tasks]
+        
+#         for i, fut in enumerate(as_completed(futures)):
+#             result = fut.result()
+#             if isinstance(result, dict) and result.get("status") == "success":
+#                 successful_results.append(result)
+#                 if (i + 1) % 5 == 0:
+#                     logger.info(f"[{i+1}/{len(tasks)}] Locus {result['locus_id']} finished.")
+#             else:
+#                 level = logging.WARNING if "Skipped" in str(result) else logging.ERROR
+#                 logger.log(level, f"[{i+1}/{len(tasks)}] {result}")
+
+#     # 5. Finalize
+#     process_finemap_output(raw_dir=dirs["loci"], inter_dir=str(dirs["inter"]), final_dir=str(dirs["flames"]))
+    
+#     logger.info(f"🎉 Pipeline finished in {time() - start_time:.2f} seconds.")
+
+#     return {
+#         "status": "success",
+#         "output_dir": str(dirs["root"]),
+#         "flames_input": str(dirs["flames"]),
+#     }
     
     
 

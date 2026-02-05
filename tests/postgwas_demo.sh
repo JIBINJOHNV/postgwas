@@ -7,6 +7,10 @@ docker run --platform=linux/amd64 \
 
 
 
+docker run --platform=linux/amd64 \
+  -v /mnt/fast/:/mnt/fast/ \
+  -it jibinjv/postgwas:1.3 bash 
+
 sample_id="PGC3_SCZ_european"
 base_dir='/Users/JJOHN41/Documents/developing_software/data/outdir/'
 resourse_folder="/Users/JJOHN41/Documents/software_resources/resourses/postgwas/"

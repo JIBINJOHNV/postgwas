@@ -10,6 +10,29 @@ import time
 import Query_api
 import subprocess
 import tempfile
+import signal
+
+class TimeoutException(Exception):
+    pass
+
+def _timeout_handler(signum, frame):
+    raise TimeoutException()
+
+signal.signal(signal.SIGALRM, _timeout_handler)
+
+def safe_query_vep(chr, pos, a1, a2, build, timeout=10):
+    try:
+        signal.alarm(timeout)
+        res = Query_api.query_VEP(chr, pos, a1, a2, build)
+        signal.alarm(0)
+        return res
+    except TimeoutException:
+        print(f"\t\t\t [VEP TIMEOUT] chr{chr}:{pos} {a1}/{a2}")
+        return None
+    except Exception as e:
+        print(f"\t\t\t [VEP ERROR] chr{chr}:{pos} {a1}/{a2} → {e}")
+        return None
+
 
 # disable pandas helper messages
 pd.options.mode.chained_assignment = None  # default='warn'
@@ -468,40 +491,102 @@ def get_Promoters(prom_dir, genes, creds, prob_col, build):
 # Get the GTEx eQTLs in a locus
 def get_VEP(creds, genes, prob_col, build):
     VEP_dict = {"HIGH": 1, "MODERATE": 0.6, "LOW": 0.4, "MODIFIER": 0.1}
-    VEPs = creds.apply(
-        lambda row: Query_api.query_VEP(
-            row["chr"], row["pos"], row["a1"], row["a2"], build
-        ),
-        axis=1,
-    )
-    if any(VEPs.apply(lambda x: isinstance(x, str))):
+    VEPs = []
+    total = len(creds)
+    print(f"\t\t\t Querying VEP API for {total} variants...")
+    for i, row in creds.iterrows():
+        #print(f"\t\t\t VEP {i+1}/{total} chr{row['chr']}:{row['pos']} {row['a1']}/{row['a2']}")
+        res = safe_query_vep(
+            row["chr"],
+            row["pos"],
+            row["a1"],
+            row["a2"],
+            build,
+            timeout=25,   # adjust if needed
+        )
+        VEPs.append(res)
+    # If all failed, abort cleanly
+    if all(x is None for x in VEPs):
         return "Cancel annotation due to timeout in VEP"
     vars = []
     found_genes = []
     consequences = []
     for i, query in enumerate(VEPs):
-        variants = query[0]
-        PiP = creds[prob_col][i]
-        if not "transcript_consequences" in variants.keys():
+        if query is None:
+            continue
+        try:
+            variants = query[0]
+        except Exception:
+            continue
+        PiP = creds[prob_col].iloc[i]
+        if "transcript_consequences" not in variants:
             continue
         for variant in variants["transcript_consequences"]:
-            if not "gene_id" in variant.keys():
+            if "gene_id" not in variant or "impact" not in variant:
                 continue
-            consequence = float(PiP) * float(VEP_dict[variant["impact"]])
+
+            consequence = float(PiP) * float(VEP_dict.get(variant["impact"], 0))
             vars.append(i)
             found_genes.append(variant["gene_id"])
             consequences.append(consequence)
-    vep_df = pd.DataFrame()
-    vep_df["ensg"] = found_genes
-    vep_df["consequence"] = consequences
-    vep_df['variant'] = vars  
-    vep_df = vep_df.groupby(["ensg", "variant"])["consequence"].max().reset_index()  
+    if len(found_genes) == 0:
+        print("\t\t\t [WARN] No VEP annotations returned for any SNP")
+        genes["VEP_sum"] = 0
+        genes["VEP_max"] = 0
+        return genes
+    vep_df = pd.DataFrame({
+        "ensg": found_genes,
+        "consequence": consequences,
+        "variant": vars,
+    })
+    vep_df = vep_df.groupby(["ensg", "variant"])["consequence"].max().reset_index()
     vep_df["VEP_max"] = vep_df.groupby("ensg")["consequence"].transform("max")
     vep_df["VEP_sum"] = vep_df.groupby("ensg")["consequence"].transform("sum")
     vep_df = vep_df[["ensg", "VEP_sum", "VEP_max"]]
+
     genes = genes.merge(vep_df, on="ensg", how="left")
     genes.fillna(0, inplace=True)
+
     return genes
+
+
+
+# def get_VEP(creds, genes, prob_col, build):
+#     VEP_dict = {"HIGH": 1, "MODERATE": 0.6, "LOW": 0.4, "MODIFIER": 0.1}
+#     VEPs = creds.apply(
+#         lambda row: Query_api.query_VEP(
+#             row["chr"], row["pos"], row["a1"], row["a2"], build
+#         ),
+#         axis=1,
+#     )
+#     if any(VEPs.apply(lambda x: isinstance(x, str))):
+#         return "Cancel annotation due to timeout in VEP"
+#     vars = []
+#     found_genes = []
+#     consequences = []
+#     for i, query in enumerate(VEPs):
+#         variants = query[0]
+#         PiP = creds[prob_col][i]
+#         if not "transcript_consequences" in variants.keys():
+#             continue
+#         for variant in variants["transcript_consequences"]:
+#             if not "gene_id" in variant.keys():
+#                 continue
+#             consequence = float(PiP) * float(VEP_dict[variant["impact"]])
+#             vars.append(i)
+#             found_genes.append(variant["gene_id"])
+#             consequences.append(consequence)
+#     vep_df = pd.DataFrame()
+#     vep_df["ensg"] = found_genes
+#     vep_df["consequence"] = consequences
+#     vep_df['variant'] = vars  
+#     vep_df = vep_df.groupby(["ensg", "variant"])["consequence"].max().reset_index()  
+#     vep_df["VEP_max"] = vep_df.groupby("ensg")["consequence"].transform("max")
+#     vep_df["VEP_sum"] = vep_df.groupby("ensg")["consequence"].transform("sum")
+#     vep_df = vep_df[["ensg", "VEP_sum", "VEP_max"]]
+#     genes = genes.merge(vep_df, on="ensg", how="left")
+#     genes.fillna(0, inplace=True)
+#     return genes
 
 
 # run vep in environment

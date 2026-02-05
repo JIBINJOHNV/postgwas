@@ -282,6 +282,8 @@ def run_ld_clump_runner(args, ctx):
     try:
         outputs = run_ld_clump_direct(args)
         ctx["ld_clump"] = outputs
+        print("ld clumping completed")
+        print(ctx["ld_clump"])
         return outputs
     finally:
         args.outdir = root
@@ -289,8 +291,10 @@ def run_ld_clump_runner(args, ctx):
 
 def run_finemap_runner(args, ctx):
     root = setup_subdir(args, "finemap")
-    args.locus_file = ctx["ld_clump"]["ldpruned_sig_file"]
-    
+    print("Finemap analysis started")
+    #args.locus_file = ctx["ld_clump"]["ldpruned_sig_file"]
+    args.locus_file = ctx["ld_clump"]["ld_clump_standard"]["ldpruned_sig_file"]
+    print(args.locus_file )
     # --- FIX: Normalize the argument (Handle List vs String) ---
     method = args.finemap_method
     if isinstance(method, list):

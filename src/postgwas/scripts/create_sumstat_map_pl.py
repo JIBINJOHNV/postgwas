@@ -13,6 +13,7 @@ COLUMN_MAP_SOURCE = """
 #CHROM	chr_col
 CHR	chr_col
 CHROM	chr_col
+chromosome	chr_col
 CHROMOSOME	chr_col
 CHROMOSOMES	chr_col
 CHROMS	chr_col
@@ -28,7 +29,7 @@ BASE PAIR POSITION	pos_col
 BASE_GRCH37	pos_col
 BASE_GRCH38	pos_col
 BASE_PAIR_LOCATION	pos_col
-BASE_PAIR_POSITION	pos_col
+base_pair_location	pos_col
 BASE-GRCH37	pos_col
 BASE-GRCH38	pos_col
 BASE.GRCH37	pos_col
@@ -90,6 +91,7 @@ RS_NUMBERS	snp_id_col
 RS.ID	snp_id_col
 RSID	snp_id_col
 RSIDS	snp_id_col
+rsid	snp_id_col
 RSNUMBERS	snp_id_col
 SNP	snp_id_col
 SNP ID	snp_id_col
@@ -126,6 +128,7 @@ EFF.ALLELE	ea_col
 EFFALLELE	ea_col
 EFFECT ALLELE	ea_col
 EFFECT_ALLELE	ea_col
+effect_allele	ea_col
 EFFECT-ALLELE	ea_col
 EFFECT.ALLELE	ea_col
 EFFECTALLELE	ea_col
@@ -164,8 +167,9 @@ REFERENCE	oa_col
 REFERENCE ALLELE	oa_col
 REFERENCE_ALLELE	oa_col
 REFERENCE-ALLELE	oa_col
-REFERENCE.ALLELE	oa_col
-REFERENCEALLELE	oa_col
+REFERENCE.ALLELE    oa_col
+REFERENCEALLELE oa_col
+AlternateAllele oa_col
 AF	eaf_col
 AF_ALT	eaf_col
 AF_EFF	eaf_col
@@ -194,6 +198,7 @@ EFFECT_ALLELE_FRQ	eaf_col
 EFFECTALLELEFREQ	eaf_col
 EFFECTALLELEMAXFREQ	eaf_col
 EFFECTALLELEMINFREQ	eaf_col
+effect_allele_frequency	eaf_col
 EST.FRQ	eaf_col
 F_U	eaf_col
 FCON	eaf_col
@@ -217,9 +222,11 @@ MAF	eaf_col
 MINOR_AF	eaf_col
 POOLED_ALT_AF	eaf_col
 TESTED_AF	eaf_col
+EffectAlleleFrequency	eaf_col
 ALL_INV_VAR_META_BETA	beta_or_col
 ALT_EFFSIZE	beta_or_col
 B	beta_or_col
+beta	beta_or_col
 BETA	beta_or_col
 BETA_SLEEPDURATION	beta_or_col
 EFFECT	beta_or_col
@@ -246,6 +253,8 @@ ODDS.RATIO	beta_or_col
 ODDSRATIO	beta_or_col
 OR	beta_or_col
 STDBETA	beta_or_col
+EffectSize.Beta	beta_or_col
+EffectSize.OR	beta_or_col
 ALL_INV_VAR_META_SEBETA	se_col
 INV_VAR_META_SEBETA	se_col
 MTAG_SE	se_col
@@ -258,6 +267,7 @@ STANDARD_ERROR	se_col
 STANDARD-ERROR	se_col
 STANDARD.ERROR	se_col
 STANDARDERROR	se_col
+standard_error	se_col
 STDERR	se_col
 STDERRLOGOR	se_col
 ALL_INV_VAR_META_P	pval_col
@@ -272,6 +282,7 @@ P_DGC	pval_col
 P_LINREG	pval_col
 P_SLEEPDURATION	pval_col
 P_VAL	pval_col
+p_value	pval_col
 P_VALUE	pval_col
 P-VAL	pval_col
 P-VALUE	pval_col

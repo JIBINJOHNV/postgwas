@@ -96,7 +96,7 @@ def ld_clump_by_regions(
     df = df.filter(pl.col(ld_field).is_not_null())
 
     if df.height == 0:
-        msg = "⚠️ No variants found with LD block annotations. Check population match."
+        msg = "\t\t\t\t  ⚠️ No variants found with LD block annotations. Check population match."
         print(msg)
         with open(log_file, "a") as log: log.write(f"\n{msg}\n")
         return None
@@ -143,6 +143,3 @@ def ld_clump_by_regions(
         "ldpruned_file": str(pruned_out),
         "log_file": str(log_file)
     }
-
-def ld_clump_standard():
-    pass

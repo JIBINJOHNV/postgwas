@@ -36,15 +36,37 @@ def get_finemap_common_parser(add_help=False):
     )
 
     grp.add_argument(
-        "--locus_file",
-        metavar=" ",
-        type=validate_path(must_exist=True, must_be_file=True),
-        help=(
-            "[bold bright_red]Required[/bold bright_red]: "
-            "Locus definition file (one row per locus). "
-            "Must contain columns: CHR, START, END."
-        ),
-    )
+            "--locus_file",
+            metavar="FILE",
+            type=validate_path(must_exist=True, must_be_file=True),
+            help=(
+                "[bold bright_red]Required[/bold bright_red]: Path to the file defining genomic regions. "
+                "\n- If [bold]locus_type[/bold] is 'range': Must contain [cyan]CHROM, START, END[/cyan] columns. "
+                "\n- If [bold]locus_type[/bold] is 'point': Must contain [cyan]CHROM, POS[/cyan] columns."
+            ),
+        )
+    grp.add_argument(
+            "--locus_type",
+            choices=["range", "point"],
+            default="range",
+            help=(
+                "Determines how boundaries are constructed (Default: [bold]range[/bold]):"
+                "\n[bold]range[/bold]: Uses START/END columns. [italic]--window_kb[/italic] acts as an optional flank. "
+                "\n[bold]point[/bold]: Uses the POS column. [italic]--window_kb[/italic] is used to create the window."
+            ),
+        )
+    grp.add_argument(
+            "--window_kb",
+            metavar="INT",
+            type=int,
+            default=500,
+            help=(
+                "The distance (in Kilobases) to extend the locus boundaries."
+                "\n- [bold]point[/bold] mode: Creates a symmetric window ([italic]POS ± window_kb[/italic]). "
+                "\n- [bold]range[/bold] mode: Adds a flank to the existing coordinates ([italic]START - window_kb[/italic] and [italic]END + window_kb[/italic])."
+                "\nSet to 0 if you want to use the exact coordinates in 'range' mode. Default: 500."
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Locus selection / tuning

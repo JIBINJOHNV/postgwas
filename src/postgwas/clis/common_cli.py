@@ -149,17 +149,17 @@ def get_ld_clump_parser(add_help=False):
     # -------------------------------
     general = parser.add_argument_group("Common LD Clumping Arguments")
 
-    general.add_argument(
-        "--ld-mode",
-        default="by_regions",
-        choices=["by_regions", "standard"],
-        metavar=" ",
-        help=(
-            "LD clumping strategy.\n"
-            "Choices: [cyan]by_regions[/cyan], [cyan]standard[/cyan]\n"
-            f"[bold green]Default:[/bold green] [cyan]by_regions[/cyan]"
-        )
-    )
+    # general.add_argument(
+    #     "--ld-mode",
+    #     default="by_regions",
+    #     choices=["by_regions", "standard"],
+    #     metavar=" ",
+    #     help=(
+    #         "LD clumping strategy.\n"
+    #         "Choices: [cyan]by_regions[/cyan], [cyan]standard[/cyan]\n"
+    #         f"[bold green]Default:[/bold green] [cyan]by_regions[/cyan]"
+    #     )
+    # )
 
     general.add_argument(
         "--ld_clump_population",
@@ -179,27 +179,19 @@ def get_ld_clump_parser(add_help=False):
         "Standard LD Clumping Arguments (PLINK-style)"
     )
 
-    standard.add_argument(
-        "--r2-cutoff",
-        type=float,
-        default=0.1,
-        metavar=" ",
-        help=(
-            "Pairwise LD r² threshold for standard clumping.\n"
-            f"[bold green]Default:[/bold green] [cyan]0.1[/cyan]"
-        )
-    )
+    # Required Inputs
+    standard.add_argument("--ld-folder", metavar="",
+                     type=validate_path(must_exist=True,must_not_be_empty=True), 
+                     help="Folder containing EUR_chr*.ld.gz files")
+    
+    # Thresholds
+    standard.add_argument("--lead-p", metavar="", type=float, default=5e-8, help="P-value threshold for Lead SNPs")
+    standard.add_argument("--r2-clump", metavar="", type=float, default=0.6, help="The minimum r2 for defining independent significant SNPs")
+    standard.add_argument("--r2-lead", metavar="", type=float, default=0.1, help="The minimum r2 for defining lead SNPs, which is used for the second clumping (clumping of the independent significant SNPs).")
 
-    standard.add_argument(
-        "--window-kb",
-        type=int,
-        default=250,
-        metavar=" ",
-        help=(
-            "Sliding window size (kilobases) for standard clumping.\n"
-            f"[bold green]Default:[/bold green] [cyan]250[/cyan]"
-        )
-    )
+    # System & Output
+    standard.add_argument("--merge-dist", metavar="", type=int, default=250000, help="The maximum distance between LD blocks of independent significant SNPs to merge into a single genomic locus.")
+
 
     return parser
 

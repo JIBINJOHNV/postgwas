@@ -8,7 +8,7 @@ from pathlib import Path
 def detect_pval_type(
     df: pl.DataFrame,
     sample_column_dict,
-    proportion_threshold: float = 0.10):
+    proportion_threshold: float = 0.001):
     
     pval_col = sample_column_dict.get("pval_col")
     if not pval_col or pval_col not in df.columns:
@@ -21,17 +21,17 @@ def detect_pval_type(
     total = pvals.height
     if total == 0:
         raise ValueError("No numeric P-values found for detection.")
-    over_1p2 = pvals.filter(pl.col("p") > 1.2).height / total
-    within_0_1 = pvals.filter((pl.col("p") >= 0) & (pl.col("p") <= 1.05)).height / total
+    over_1p2 = pvals.filter(pl.col("p") > 1.005).height / total
+    within_0_1 = pvals.filter((pl.col("p") >= 0) & (pl.col("p") <= 1.005)).height / total
     max_val = float(pvals.select(pl.col("p").max()).item())
     median_val = float(pvals.select(pl.col("p").median()).item())
     
     if over_1p2 >= proportion_threshold:
         detected_type = "mlogp"
+    elif max_val > 2:
+        detected_type = "mlogp"
     elif within_0_1 >= 0.95:
         detected_type = "pvalue"
-    elif max_val > 10:
-        detected_type = "mlogp"
     else:
         detected_type = "pvalue"
     return {
@@ -131,6 +131,7 @@ def convert_mlogp_to_pval(
     (DataFrame, dict, sample_column_dict)
         Converted DataFrame, summary statistics, and updated sample_column_dict.
     """
+
     pval_col = sample_column_dict["pval_col"]
     if pval_col not in df.columns:
         raise ValueError(f"Column '{pval_col}' not found in DataFrame.")
@@ -156,10 +157,10 @@ def convert_mlogp_to_pval(
         pl.col(output_col).mean().alias("mean_PVAL"),
         pl.col(output_col).median().alias("median_PVAL"),
     ).to_dicts()[0]
-    print(f"✅ Converted -log10(p) → '{output_col}'")
+    print(f"\t\t\t\t✅ Converted -log10(p) → '{output_col}' : After Convetion the summary ")
     print(
-        f"PVAL summary: min={stats['min_PVAL']:.3e}, max={stats['max_PVAL']:.3e}, "
-        f"mean={stats['mean_PVAL']:.3e}, median={stats['median_PVAL']:.3e}"
+        f"\t\t\t\tPVAL summary: min={stats['min_PVAL']:.3e}, max={stats['max_PVAL']:.3e}, "
+        f"\t\t\t\tmean={stats['mean_PVAL']:.3e}, median={stats['median_PVAL']:.3e}"
     )
     # 5️⃣ Update column dictionary
     sample_column_dict["pval_col"] = output_col
@@ -174,7 +175,7 @@ def detect_and_convert_pval(
     df: pl.DataFrame,
     sample_column_dict,
     output_col: str = "LP",
-    proportion_threshold: float = 0.10,
+    proportion_threshold: float = 0.001,
     max_allowed_lp: float = 300.0,
 ):
     """
@@ -195,7 +196,6 @@ def detect_and_convert_pval(
     logfile = log_dir / f"{gwas_outputname}_chr{chromosome}_detect_pval.log"
 
     buffer = io.StringIO()
-
     def log_print(*args):
         """Write ONLY to log buffer — never to screen."""
         msg = " ".join(str(x) for x in args)
@@ -215,15 +215,18 @@ def detect_and_convert_pval(
     qc_info = detection_info.copy()
 
     print(f"                ✅ P value Detected as {detection_info['detected_type']} for chromosome {chromosome}")
+    log_print(f"                ✅ P value Detected as {detection_info['detected_type']} for chromosome {chromosome}")
     # --- Case: -log10(p) detected ---
     if detection_info["detected_type"] == "mlogp":
         log_print("Converting -log10(p) P-values to raw P-values…")
-        df, stats, sample_column_dict = convert_pval_to_mlogp(
+        log_print(f"Variants has P vallue over 1.005 is : {detection_info['over_1.2_fraction']}")
+        print(f"\t\t\t\tVariants has P vallue over 1.005 is : {detection_info['over_1.2_fraction']}")
+        df, stats, sample_column_dict = convert_mlogp_to_pval(
             df=df,
             sample_column_dict=sample_column_dict,
             output_col=output_col
         )
-
+        
         qc_info.update(stats)
         qc_info["conversion"] = "convert_pval_to_mlogp applied"
 
@@ -232,7 +235,8 @@ def detect_and_convert_pval(
         df = df.with_columns(pl.col(sample_column_dict["pval_col"]).alias(output_col))
         qc_info["conversion"] = "none_needed"
         log_print(f"P-values already raw; stored in '{output_col}'.")
-
+        log_print(f"Variants has P vallue over 1.005 is : {detection_info['over_1.2_fraction']}")
+        print(f"\t\t\t\tVariants has P vallue over 1.005 is : {detection_info['over_1.2_fraction']}")
     # ------------------------------------------------------------
     #  PRESERVED — DO NOT REMOVE ANY COMMENTS
     # ------------------------------------------------------------

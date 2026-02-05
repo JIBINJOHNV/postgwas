@@ -37,19 +37,25 @@ Highly recomend using the provided Docker image for ease of use and reproducibil
 ```sh
 docker pull jibinjv/postgwas:1.3
 
-docker run --platform=linux/amd64 -it jibinjv/postgwas:1.3 postgwas --help
+docker run --rm --platform=linux/amd64 \
+    -u $(id -u):$(id -g) \
+    -it jibinjv/postgwas:1.3 postgwas --help
 ```
 
 Display help for any module:
 
 ```sh
-docker run --platform=linux/amd64 -it jibinjv/postgwas:1.3 postgwas finemap --help
+docker run --rm  --platform=linux/amd64 \
+    -u $(id -u):$(id -g) \
+    -it jibinjv/postgwas:1.3 postgwas finemap --help
 ```
 
 Display help for pipeline module:
 
 ```sh
-docker run --platform=linux/amd64 -it jibinjv/postgwas:1.3 postgwas pipeline --modules flames --help
+docker run --rm  --platform=linux/amd64 \
+    -u $(id -u):$(id -g) \ 
+    -it jibinjv/postgwas:1.3 postgwas pipeline --modules flames --help
 
 ```
 
@@ -63,7 +69,9 @@ Along with main pipleine module users can use ptional flags:
 Example:
 
 ```sh
-docker run --platform=linux/amd64 -it jibinjv/postgwas:1.3 postgwas pipeline \
+docker run --rm  --platform=linux/amd64 \
+     -u $(id -u):$(id -g) \
+     jibinjv/postgwas:1.3 postgwas pipeline \
     --modules flames \
     --apply-filter \
     --heritability \
@@ -108,6 +116,7 @@ python test_run.py \
 
 ```sh
 docker run --rm --platform=linux/amd64 \
+  -u $(id -u):$(id -g) \
   -v /Users/JJOHN41/:/Users/JJOHN41/ \
   -it jibinjv/postgwas:1.3 python /opt/postgwas/src/postgwas/scripts/create_sumstat_map_pl.py \
   --input /Users/JJOHN41/Downloads/postgwas/tests \
@@ -234,6 +243,7 @@ The harmonisation.yaml file contains several reference file paths that must be m
 ```sh
 
 docker run --rm  --platform=linux/amd64 \
+    -u $(id -u):$(id -g) \
     -v /Users/JJOHN41/:/Users/JJOHN41/ \
     -it jibinjv/postgwas:1.3 postgwas harmonisation \
     --nthreads 10 \
@@ -317,7 +327,8 @@ sample_id="ADHD2022_iPSYCH_deCODE_PGC"
 ## Please ensure that the genome build of the input summary-statistics VCF file matches the genome build of all reference files.
 ## Please ensure that the gene locus file and the gene set file use the same gene identifiers or gene symbols.
 
-docker run --platform=linux/amd64 \
+docker run --rm  --platform=linux/amd64 \
+    -u $(id -u):$(id -g) \
     -v /Users/JJOHN41/:/Users/JJOHN41/ \
     -it jibinjv/postgwas:1.3 postgwas formatter \
     --nthreads 2 \
@@ -328,7 +339,8 @@ docker run --platform=linux/amd64 \
     --outdir ${base_dir}/${sample_id}/magma_inputs/
 
 
-docker run --platform=linux/amd64 \
+docker run --rm  --platform=linux/amd64 \
+    -u $(id -u):$(id -g) \
     -v /Users/JJOHN41/:/Users/JJOHN41/ \
     -it jibinjv/postgwas:1.3 postgwas magma \
     --nthreads 2 \
@@ -357,7 +369,7 @@ resourse_folder="/Users/JJOHN41/Documents/software_resources/resourses/postgwas/
 genome_version="GRCh37"
 sample_id="ADHD2022_iPSYCH_deCODE_PGC"
 
-docker run --platform=linux/amd64 \
+docker run --rm --platform=linux/amd64 \
   -u $(id -u):$(id -g) \
   -v /Users/JJOHN41/:/Users/JJOHN41/ \
   -it jibinjv/postgwas:1.3 \
