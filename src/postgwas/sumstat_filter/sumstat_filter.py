@@ -98,7 +98,7 @@ def filter_gwas_vcf_bcftools(
 
     if allelefreq_diff_cutoff is not None:
         include_parts.append(
-            f"(abs(FORMAT/AF - INFO/{external_af_name}) <= {allelefreq_diff_cutoff})"
+            f"(abs(INFO/AF - INFO/{external_af_name}) <= {allelefreq_diff_cutoff})"
         )
 
     include_expr = " & ".join(include_parts) if include_parts else "1"
