@@ -185,12 +185,16 @@ def get_ld_clump_parser(add_help=False):
                      help="Folder containing EUR_chr*.ld.gz files")
     
     # Thresholds
-    standard.add_argument("--lead-p", metavar="", type=float, default=5e-8, help="P-value threshold for Lead SNPs")
-    standard.add_argument("--r2-clump", metavar="", type=float, default=0.6, help="The minimum r2 for defining independent significant SNPs")
-    standard.add_argument("--r2-lead", metavar="", type=float, default=0.1, help="The minimum r2 for defining lead SNPs, which is used for the second clumping (clumping of the independent significant SNPs).")
+    standard.add_argument("--lead-p", metavar="", type=float, default=5e-8, 
+                          help="P-value threshold for Lead SNPs [bold green]Default:[/bold green] [cyan]5e-8[/cyan]")
+    standard.add_argument("--r2-clump", metavar="", type=float, default=0.6, 
+                          help="The minimum r2 for defining independent significant SNPs. [bold green]Default:[/bold green] [cyan]0.6[/cyan]")
+    standard.add_argument("--r2-lead", metavar="", type=float, default=0.1, 
+                          help="The minimum r2 for defining lead SNPs, which is used for the second clumping (clumping of the independent significant SNPs). [bold green]Default:[/bold green] [cyan]0.1[/cyan]")
 
     # System & Output
-    standard.add_argument("--merge-dist", metavar="", type=int, default=250000, help="The maximum distance between LD blocks of independent significant SNPs to merge into a single genomic locus.")
+    standard.add_argument("--merge-dist", metavar="", type=int, default=250000, 
+                          help="The maximum distance between LD blocks of independent significant SNPs to merge into a single genomic locus. [bold green]Default:[/bold green] [cyan]250000[/cyan]")
 
 
     return parser

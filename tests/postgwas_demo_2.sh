@@ -9,6 +9,10 @@ python /Users/JJOHN41/Documents/developing_software/postgwas/src/postgwas/finema
     --finemap_ld_ref  /Users/JJOHN41/Documents/software_resources/resourses/postgwas/onekg_plinkfiles/GRCh37/EUR.chr1_22.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes_multiallele_uniqid_Grch37_maf0001 
 
 
+
+
+
+
 docker run --platform=linux/amd64 \
     -v /Users/JJOHN41/:/Users/JJOHN41/ \
     -it jibinjv/postgwas:1.3 bash  
@@ -119,8 +123,8 @@ done
     -u $(id -u):$(id -g) \
     -v /mnt/disks/sdd/:/mnt/disks/sdd/ \
     --rm jibinjv/postgwas:1.3 python /opt/postgwas/src/postgwas/scripts/create_sumstat_map_pl.py \
-    --input /mnt/disks/sdd/bnmf-clustering/VCF/GPCA_Brain_cluster/susmstat_tsv/ \
-    --output-path /mnt/disks/sdd/bnmf-clustering/final_sumstat_vcf/gpca_gwas2vcf_input.tsv \
+    --input /mnt/disks/sdd/bnmf-clustering/sumstat/scz/ \
+    --output-path /mnt/disks/sdd/bnmf-clustering/final_sumstat_vcf/gpca_gwas2vcf_input3.tsv \
     --resource-folder /mnt/disks/sdd/resourses/postgwas/gwas2vcf/ \
     --harmonisation-output-path /mnt/disks/sdd/bnmf-clustering/final_sumstat_vcf/
  
@@ -131,14 +135,5 @@ docker run --platform=linux/amd64 \
     -it jibinjv/postgwas:1.3 postgwas harmonisation \
         --nthreads 10 \
         --max-mem 50G \
-        --config /mnt/disks/sdd/bnmf-clustering/final_sumstat_vcf/gpca_gwas2vcf_input.tsv \
+        --config /mnt/disks/sdd/bnmf-clustering/final_sumstat_vcf/gpca_gwas2vcf_input2.tsv \
         --defaults /mnt/disks/sdd/postgwas_analysis/harmonisation.yaml
-
-
-
- /mnt/disks/sdd/postgwas_analysis/harmonisation.yaml
-
-
-/mnt/disks/sdd/resourses/postgwas/gwas2vcf/
-
- /mnt/disks/sdd/bnmf-clustering/VCF/GPCA_Brain_cluster

@@ -1,8 +1,18 @@
 
 docker run --platform=linux/amd64 \
   -v /Users/JJOHN41/:/Users/JJOHN41/ \
-  -v /var/run/docker.sock:/var/run/docker.sock \
   -it jibinjv/postgwas:1.3 python /opt/postgwas/src/postgwas/scripts/create_sumstat_map_pl.py --help 
+
+
+
+docker run --platform=linux/amd64 \
+  -v /Users/JJOHN41/:/Users/JJOHN41/ \
+  -it jibinjv/postgwas:1.3 python /opt/postgwas/src/postgwas/scripts/create_sumstat_map_pl.py \
+  --input /Users/JJOHN41/Downloads/kadoorie_biobank/raw_data \
+  --output-path /Users/JJOHN41/Downloads/kadoorie_biobank/vcf_files/kadoorie_biobank_input_susmstat.csv \
+  --resource-folder /Users/JJOHN41/Documents/software_resources/resourses/postgwas/ \
+  --harmonisation-output-path /Users/JJOHN41/Downloads/kadoorie_biobank/vcf_files/
+
 
 
 
@@ -19,12 +29,12 @@ genome_version="GRCh37"
 ## convert summstat to vcf and harmonise
 docker run --platform=linux/amd64 \
     -v /Users/JJOHN41/:/Users/JJOHN41/ \
-    -v /var/run/docker.sock:/var/run/docker.sock \
     -it jibinjv/postgwas:1.3 postgwas harmonisation \
         --nthreads 10 \
         --max-mem 50G \
-        --config /Users/JJOHN41/Downloads/sumstat_harmonisation/raw_sumstat/sumstat_input.csv \
+        --config /Users/JJOHN41/Downloads/kadoorie_biobank/vcf_files/kadoorie_biobank_input_susmstat.csv \
         --defaults /Users/JJOHN41/Documents/developing_software/postgwas/tests/harmonisation.yaml
+
 
 docker run --platform=linux/amd64 \
   -u $(id -u):$(id -g) \

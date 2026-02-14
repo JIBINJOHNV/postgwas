@@ -30,11 +30,20 @@ def split_chr_pos(df: pl.DataFrame, sample_gwas_dict: dict) -> list:
         raise KeyError(f"❌ Chromosome column '{chr_col}' not found in dataframe.")
     # Ensure consistent formatting
     df = df.with_columns(pl.col(chr_col).cast(pl.Utf8).str.strip_chars())
-    chromosomes = df.select(chr_col).unique().to_series().to_list()
+    #chromosomes = df.select(chr_col).unique().to_series().to_list()
+    df = df.filter(pl.col(chr_col).is_not_null())
+    chromosomes = (
+        df.select(chr_col)
+        .unique()
+        .to_series()
+        .to_list()
+    )
     
     output_files = []
+    
     for chrom in chromosomes:
-        subset = df.filter(pl.col(chr_col) == chrom)
+        #subset = df.filter(pl.col(chr_col) == chrom)
+        subset = df.filter(pl.col(chr_col).eq(chrom))
         out_path = os.path.join(output_folder, f"{gwas_name}_chr{chrom}.tsv")
         subset.write_csv(out_path, separator="\t")
         output_files.append(out_path)

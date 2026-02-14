@@ -1,6 +1,6 @@
 import os
 import subprocess
-from typing import Optional
+from typing import Optional, Dict, Any
 import os, subprocess, io
 from pathlib import Path
 from postgwas.utils.main import run_cmd
@@ -26,6 +26,7 @@ def filter_gwas_vcf_bcftools(
     mhc_end: int = 34000000,
     threads: int = 5,
     max_mem: str = "5G",
+    extra_options: Optional[Dict[str, Any]] = None,
 ) -> str:
     
     vcf_name = os.path.basename(vcf_path)
@@ -76,10 +77,12 @@ def filter_gwas_vcf_bcftools(
         pre_variants = int(pre.stdout.strip())
     except Exception:
         pre_variants = None
-
-    log_print(f"📊 Variants BEFORE filtering: {pre_variants}")
-    log_print("")
-
+    if extra_options !=None:
+        log_print(f"\n\t\t\t📊 Variants in the input file                        : {extra_options['total_variant_infile']}")
+        log_print(f"\n\t\t\t📊 Variants successfully read by harmonisation module: {extra_options['total_variant_read']}")
+        log_print(f"\n\t\t\t📊 Variants USED for VCF creation                    : {extra_options['total_variant_in_vcf_input']}")
+        log_print(f"\n\t\t\t📊 Variants BEFORE filtering                         : {pre_variants}")
+        log_print("")
     # ============================================================
     # Build inclusion expression
     # ============================================================
@@ -191,9 +194,10 @@ def filter_gwas_vcf_bcftools(
 
     log_print("📊 Variants filtering command used:")
     log_print(post_cmd)
-    log_print(f"✅ Variants AFTER filtering: {post_variants}")
-    log_print(f"💾 Filtered VCF saved to: {output_vcf}")
+    log_print(f"✅ Variants AFTER filtering                          : {post_variants}")
+    log_print(f"💾 Filtered VCF saved to                             : {output_vcf}")
     log_print("\n🎉 bcftools filtering completed.")
+
     # ============================================================
     # Write log file
     # ============================================================
@@ -248,14 +252,72 @@ def filter_gwas_vcf_bcftools(
     # ----------------------------
     # Counts
     # ----------------------------
-    print(f"\n\t\t\t📊 Variants BEFORE filtering : {pre_variants:,}")
-    print(f"\t\t\t✅ Variants AFTER filtering  : {post_variants:,}")
+    print("")
+    if extra_options !=None:
+        print(f"\t\t\t📊 Variants in the input file                         : {extra_options['total_variant_infile']:,}")
+        print(f"\t\t\t📊 Variants successfully read by harmonisation module : {extra_options['total_variant_read']:,}")
+        print(f"\t\t\t📊 Variants USED for VCF creation                     : {extra_options['total_variant_in_vcf_input']:,}")
+    print(f"\t\t\t📊 Variants BEFORE filtering                          : {pre_variants:,}")
+    print(f"\t\t\t📊 Variants AFTER filtering                           : {post_variants:,}")
 
     if pre_variants is not None and post_variants is not None:
-        print(f"\t\t\t🧮 Variants REMOVED          : {pre_variants - post_variants:,}")
+        print(f"\t\t\t🧮 Variants REMOVED during filtering                  : {pre_variants - post_variants}")
     
     print("")
 
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
+
+    infile = extra_options["total_variant_infile"]
+    read = extra_options["total_variant_read"]
+    vcf_input = extra_options["total_variant_in_vcf_input"]
+
+    # 1️⃣ Input → Read
+    if read < infile:
+        diff = infile - read
+        pct = (diff / infile * 100) if infile else 0
+        log_print(
+            f"{BOLD}⚠️ Harmonisation did not read all variants: "
+            f"{diff:,} variants missing ({pct:.2f}%).{RESET}"
+        )
+        print(
+            f"{BOLD}⚠️ Harmonisation did not read all variants: "
+            f"{diff:,} variants missing ({pct:.2f}%).{RESET}"
+        )
+    # 2️⃣ Read → VCF input
+    if vcf_input < read:
+        diff = read - vcf_input
+        pct = (diff / read * 100) if read else 0
+        log_print(
+            f"{BOLD}\t\t⚠️ Fewer variants prepared for VCF creation: "
+            f"{diff:,} removed after harmonisation ({pct:.2f}%).{RESET}"
+        )
+        log_print(
+            "   Possible reasons: variants missing in INFO/EAF file or removed during QC."
+        )
+        log_print(
+            "   See: 00_harmonised_sumstat/qc_summary/*_gwas2vcf_summary.tsv"
+        )
+        print(
+            f"{BOLD}\t\t⚠️ Fewer variants prepared for VCF creation: "
+            f"{diff:,} removed after harmonisation ({pct:.2f}%).{RESET}"
+        )
+        print(
+            "\t\t\t Possible reasons: variants missing in INFO/EAF file or removed during QC."
+        )
+        print(
+            "\t\t\t See: 00_harmonised_sumstat/qc_summary/*_gwas2vcf_summary.tsv"
+        )
+    # 3️⃣ VCF input → Pre-filter
+    if pre_variants < vcf_input:
+        diff = vcf_input - pre_variants
+        pct = (diff / vcf_input * 100) if vcf_input else 0
+        log_print(
+            f"{BOLD}⚠️ Not all variants carried into VCF creation: "
+            f"{diff:,} dropped during VCF generation ({pct:.2f}%).{RESET}"
+        )
+
+    print("")
     return {
         "filtered_vcf": output_vcf
     }

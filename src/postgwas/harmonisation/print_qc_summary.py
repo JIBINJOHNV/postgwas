@@ -16,11 +16,11 @@ def print_qc_summary(final_qc_df, columns=None, warn_threshold=0.05):
     final_qc_df = final_qc_df.set_index("index")
 
     QC_LABELS = {
-        "num_records": "Total variant records",
+        "num_records": "Total variant records in vcf file",
         "num_snps": "Total SNPs",
         "ts_tv_ratio": "Transition / Transversion ratio",
         "variants_with_missing_extrnal_af": "Variants missing external allele frequency",
-        "variants_with_EAF_diff_gt_cutoff": "Variants with large EAF discrepancy",
+        "variants_with_EAF_diff_gt_cutoff": "Variants with large EAF discrepancy & missing external allele frequency",
     }
 
     available_cols = [c for c in columns if c in final_qc_df.columns]
@@ -46,10 +46,10 @@ def print_qc_summary(final_qc_df, columns=None, warn_threshold=0.05):
         # Core QC metrics
         # --------------------------------------------------
         for key, label in QC_LABELS.items():
-            if key not in final_qc_df.index:
+            clean_key = key.strip()
+            if clean_key not in final_qc_df.index:
                 continue
-
-            val = final_qc_df.loc[key, col]
+            val = final_qc_df.loc[clean_key, col]
 
             if key == "ts_tv_ratio":
                 print(f"{PREFIX}🔬 {label:45s}: {val:.2f}")
@@ -72,6 +72,8 @@ def print_qc_summary(final_qc_df, columns=None, warn_threshold=0.05):
                 )
 
         # Large EAF discordance (allele flip warning)
+        YELLOW = "\033[93m"
+        RESET = "\033[0m"
         if "variants_with_EAF_diff_gt_cutoff" in final_qc_df.index:
             ratio = frac(final_qc_df.loc["variants_with_EAF_diff_gt_cutoff", col])
             if ratio > warn_threshold:
@@ -79,9 +81,9 @@ def print_qc_summary(final_qc_df, columns=None, warn_threshold=0.05):
                     f"{PREFIX}❗ {QC_LABELS['variants_with_EAF_diff_gt_cutoff']}: "
                     f"{ratio*100:.2f}% "
                     f"({int(final_qc_df.loc['variants_with_EAF_diff_gt_cutoff', col]):,} variants)\n"
-                    f"{PREFIX}   → Possible allele flips, strand mismatches, or population mismatch"
+                    f"{PREFIX}   → {YELLOW}Possible allele flips, strand mismatches, "
+                    f"REF/ALT mismatches (e.g. indels), or population mismatch{RESET}"
                 )
-
         # --------------------------------------------------
         # Print warnings only if present
         # --------------------------------------------------

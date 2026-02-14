@@ -248,6 +248,7 @@ def run_bcftools_annot(
             --fasta-ref \"{target_genome_fasta_file}\" \
             --chain \"{chain_file}\" \
             --reject \"{reject_vcf}\" \
+            --reject-type z \
         | bcftools view -e 'INFO/SWAP==1 || INFO/SWAP==-1' \
         | bcftools norm -m-any -d exact \
         | bcftools sort -Oz \

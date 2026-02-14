@@ -519,6 +519,7 @@ def gwas_to_vcf_parallel(
         output_dir=str(output_dir_path),
         sample_column_dict=sample_column_dict
     )
+    safe_print("")
     safe_print(f"           Total variants in input file        : {file_cvariant_count:,}")
     safe_print(f"           Total variants read by the python   : {polars_rows:,}")
 
@@ -541,8 +542,22 @@ def gwas_to_vcf_parallel(
         sample_column_dict,
     )
     grch_version = genome_build_info["inferred_build"]
-    safe_print(f"           🧬 Inferred genome build: {grch_version}")
-    safe_print(f"               {genome_build_info}")
+    safe_print(" ")
+    safe_print(
+        f"\033[96m           🧬 Inferred genome build:\033[0m "
+        f"\033[93m{grch_version}\033[0m"
+    )
+    safe_print(
+    f"                  🧬 Build: {genome_build_info['inferred_build']} | "
+    f"Total variants: {genome_build_info['total_variants']:,}" )
+
+    safe_print(
+        f"                  🧬 GRCh37 matches: {genome_build_info['grch37_matches']:,} "
+        f"({genome_build_info['percent_grch37']}%)  |  "
+        f"GRCh38 matches: {genome_build_info['grch38_matches']:,} "
+        f"({genome_build_info['percent_grch38']}%)"
+    )
+
     safe_print(" ")
 
     if grch_version == "Ambiguous":
@@ -659,7 +674,7 @@ def gwas_to_vcf_parallel(
             for e in errors_seen:
                 safe_print("   -", e)
         else:
-            safe_print("\n          🎉All chromosomes completed without reported errors.")
+            safe_print("\n          🎉All chromosomes completed without errors.")
 
     return per_chr_qc
 
@@ -718,7 +733,7 @@ def run_harmonisation_pipeline(
     # Extract all defaults safely
     default_eaf = default_cfg_obj["default_eaf"]
     default_info = default_cfg_obj["default_info"]
-    default_comparison_af = default_cfg_obj["default_comparison_af"]
+    default_comparison_af = default_cfg_obj["default_comparison_af_file"]
 
     default_eaf_column = default_cfg_obj["default_eaf_column"]
     default_info_column = default_cfg_obj["default_info_column"]
@@ -733,7 +748,10 @@ def run_harmonisation_pipeline(
     output_folder = Path(sample_column_dict["output_folder"])
     gwastovcf_script = str(Path(__file__).parent / "gwas2vcf" / "main.py")
 
-
+    print("")
+    safe_print(f"            To compare GWAS Alternative allele frequency with External allele freqency use : {comparison_cols} column")
+    safe_print(f"            present in the file named {default_comparison_af}")
+    safe_print("")
     # Save normalized output_folder  back to dict
     output_folder = output_folder / "00_harmonised_sumstat"
     sample_column_dict["output_folder"] = str(output_folder)
@@ -888,7 +906,7 @@ def run_harmonisation_pipeline(
         vcf_path=raw_vcf_path,
         qc_outdir=outdir,
         sample_id=f"{sample_column_dict['gwas_outputname']}_GRCh37_raw",
-        external_af_name="EUR",
+        external_af_name=comparison_cols,
         allelefreq_diff_cutoff=0.2,
         n_threads=nthreads,
         bcftools_bin="bcftools",
@@ -899,7 +917,19 @@ def run_harmonisation_pipeline(
     # STEP 5 — Filtering VCF
     # ---------------------------------------------------------
     #safe_print("🧪 Filtering VCF based on INFO / AF / MHC settings...")
-
+    gwas_to_vcf_qc_df = pd.read_csv( Path(outdir) / "qc_summary" / f"{sample_column_dict['gwas_outputname']}_gwas2vcf_summary.tsv",sep="\t")
+    gwas_to_vcf_qc_df.columns=[x.strip() for x in gwas_to_vcf_qc_df.columns]
+    gwas_to_vcf_qc_df = gwas_to_vcf_qc_df[  gwas_to_vcf_qc_df['chromosome'] != "chromosome" ]
+    snp_id_df = gwas_to_vcf_qc_df[  gwas_to_vcf_qc_df['key'] == "snp_id_col" ]
+    total_variants_in_gwastovcf = int(snp_id_df['n_unique'].astype(int).sum())
+    gwas_to_vcf_qc_df.to_csv(Path(outdir) / "qc_summary" / f"{sample_column_dict['gwas_outputname']}_gwas2vcf_summary.tsv",sep="\t",index=None)
+    
+    variant_qc_summary={
+                    "total_variant_infile": qc_results.get( "total_variant_infile", pd.NA),
+                    "total_variant_read": qc_results.get( "total_variant_read", pd.NA ),
+                    "total_variant_in_vcf_input":total_variants_in_gwastovcf
+                    }
+    
     qc_passed_vcf = filter_gwas_vcf_bcftools(
         vcf_path=raw_vcf_path,
         output_folder=str(outdir),
@@ -919,6 +949,7 @@ def run_harmonisation_pipeline(
         mhc_end=34000000,
         threads=nthreads,
         max_mem="12G",
+        extra_options=variant_qc_summary
     )
     #safe_print(f"✅ Filtered VCF written to: {qc_passed_vcf}")
 
@@ -928,7 +959,7 @@ def run_harmonisation_pipeline(
         vcf_path=filtered_vcf_path,
         qc_outdir=outdir,
         sample_id=f"{sample_column_dict['gwas_outputname']}_GRCh37_filtered",
-        external_af_name="EUR",
+        external_af_name=comparison_cols,
         allelefreq_diff_cutoff=0.2,
         n_threads=nthreads,
         bcftools_bin="bcftools",

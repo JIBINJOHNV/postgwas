@@ -26,23 +26,25 @@ def clean_intermediate_files(output_dir: str, gwas_outputname):
         Dictionary of merged output paths by category.
     """
     outdir = Path(output_dir)
-    outdir.mkdir(parents=True, exist_ok=True)
+    
+    qc_dir = outdir / "qc_summary"
+    qc_dir.mkdir(parents=True, exist_ok=True)
     # --- Merge log-like files (non-VCF) ---
     try:
-        os.system(f"cat {outdir}/*_errors.txt > {outdir}/{gwas_outputname}_gwas2vcf_errors.txt")
+        os.system(f"cat {outdir}/*_errors.txt > {qc_dir}/{gwas_outputname}_gwas2vcf_errors.txt")
     except Exception as e:
         print(f"⚠️ Skipped merging error logs: {e}")
     try:
-        os.system(f"cat {outdir}/*.dict > {outdir}/{gwas_outputname}_gwas2vcf.dict")
+        os.system(f"cat {outdir}/*.dict > {qc_dir}/{gwas_outputname}_gwas2vcf.dict")
     except Exception as e:
         print(f"⚠️ Skipped merging dict files: {e}")
     try:
-        os.system(f"cat {outdir}/*_summary.tsv > {outdir}/{gwas_outputname}_gwas2vcf_summary.tsv")
+        os.system(f"cat {outdir}/*_summary.tsv > {qc_dir}/{gwas_outputname}_gwas2vcf_summary.tsv")
     except Exception as e:
         print(f"⚠️ Skipped merging summary files: {e}")
     
     try:
-        os.system(f"cat {outdir}/*_vcf_input.tsv |gzip -c > {outdir}/{gwas_outputname}_gwas2vcf_input.tsv.gz")
+        os.system(f"cat {outdir}/*_vcf_input.tsv |gzip -c > {qc_dir}/{gwas_outputname}_gwas2vcf_input.tsv.gz")
         os.system(f"rm {outdir}/*_vcf_input.tsv")
     except Exception as e:
         print(f"⚠️ Skipped merging gwas2vcf files: {e}")
@@ -59,7 +61,7 @@ def clean_intermediate_files(output_dir: str, gwas_outputname):
         print(f"⚠️ Cleanup failed: {e}")
     # Placeholder: return paths for later use
     return {
-        "errors": f"{outdir}/{gwas_outputname}_gwas2vcf_errors.txt",
-        "dict": f"{outdir}/{gwas_outputname}_gwas2vcf.dict",
-        "summary": f"{outdir}/{gwas_outputname}_gwas2vcf_summary.tsv",
+        "errors": f"{qc_dir}/{gwas_outputname}_gwas2vcf_errors.txt",
+        "dict": f"{qc_dir}/{gwas_outputname}_gwas2vcf.dict",
+        "summary": f"{qc_dir}/{gwas_outputname}_gwas2vcf_summary.tsv",
     }
