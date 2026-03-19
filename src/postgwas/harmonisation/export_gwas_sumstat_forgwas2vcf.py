@@ -156,15 +156,14 @@ def export_gwas_sumstat(
         (pl.col(se_col_name).is_finite()) &        # Removes Infinity (Inf)
         # --- Beta Checks ---
         (pl.col(beta_col_name).is_not_null()) &    # Removes NaNs/None
-        (pl.col(beta_col_name).is_finite()) &       # Removes Infinity (Inf)
-        (pl.col(beta_col_name) != 0.0)
+        (pl.col(beta_col_name).is_finite())       # Removes Infinity (Inf)
     )
     new_count=len(df2)
 
     # (Optional) Check how many were dropped
     n_dropped = old_count - new_count
     if n_dropped > 0:
-        print(f"\t\t\t\t Dropped {n_dropped} variants due to invalid '{se_col_name}' or '{beta_col_name}' values from chromosome{chromosome}.")
+        print(f"\t\t\t\t Dropped {n_dropped} variants due to invalid '{se_col_name} (0,null of Infinity)' or '{beta_col_name} (null or Infinity)' values from chromosome{chromosome}.")
         
     # -------------------------------------------------------
     # Prepare output folder

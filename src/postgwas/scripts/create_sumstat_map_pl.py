@@ -143,6 +143,7 @@ A.2	oa_col
 A2	oa_col
 AL2	oa_col
 OA	oa_col
+ALLELE0	oa_col
 ALLELE 2	oa_col
 ALLELE_2	oa_col
 ALLELE-2	oa_col
@@ -171,6 +172,7 @@ REFERENCE.ALLELE    oa_col
 REFERENCEALLELE oa_col
 AlternateAllele oa_col
 AF	eaf_col
+A1FREQ	eaf_col
 AF_ALT	eaf_col
 AF_EFF	eaf_col
 AF-ALT	eaf_col
@@ -299,6 +301,7 @@ Z-SCORE	imp_z_col
 ZSCORE	imp_z_col
 Z_Estimate	imp_z_col
 CONTROLS_N	ncontrol_col
+N	ncontrol_col
 N_CON	ncontrol_col
 N_CONTROL	ncontrol_col
 N_CONTROLS	ncontrol_col

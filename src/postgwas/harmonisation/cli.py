@@ -70,6 +70,9 @@ def run_harmonisation(args):
 
     for user_cfg in cfg_list:
         try:
+            print(user_cfg)
+            print(args.defaults)
+            print(args.nthreads)
             # We overwrite or append to harmonised_vcfs here
             harmonised_vcfs = run_harmonisation_pipeline(
                 sample_column_dict=user_cfg,

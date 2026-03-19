@@ -98,7 +98,8 @@ def calculate_se_from_beta_pvalue(
     ])
 
     log_print("📈 Computing SE using scipy.stats.norm.ppf()...")
-
+    log_print(f"🧮 Formula: SE = abs({beta_col} / norm.ppf({pval_col} / {tail}))")
+    log_print("ℹ️  Note: Using Inverse Normal Cumulative Distribution Function (Probit).")
     # Convert to pandas for norm.ppf
     pdf = df.select([beta_col, pval_col]).to_pandas()
 

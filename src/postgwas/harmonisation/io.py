@@ -426,50 +426,60 @@ def find_resource_file_path(input_file, resource_folder, grch_version, chromosom
     print(f"   Tried constructed path: {input_file}_chr{chromosome}.tsv.gz")
     return "NA"
 
+import os
+import json
+import pandas as pd
 
 
 def read_config(csv_path):
     """
-    Convert a CSV configuration file into a JSON configuration file,
-    trim whitespace around keys and values, and return as a list of dicts.
+    Read a configuration file (CSV or TSV) and return a list of dictionaries.
+    Automatically detects delimiter and cleans whitespace.
 
     Parameters
     ----------
     csv_path : str
-        Path to the input CSV configuration file.
-    output_dir : str
-        Directory where the JSON configuration file will be saved.
+        Path to configuration file.
 
     Returns
     -------
     list[dict]
-        List of configuration dictionaries with trimmed keys and values.
+        List of configuration dictionaries.
     """
+
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"❌ The file '{csv_path}' was not found.")
-    output_dir=os.path.dirname(csv_path)
-    os.makedirs(output_dir, exist_ok=True)
-    # Read the CSV file
-    df = pd.read_csv(csv_path)
-    df=df.fillna('NA')
-    # Strip whitespace from column names and all string cells
+
+    # -------------------------------
+    # Auto-detect separator
+    # -------------------------------
+    df = pd.read_csv(csv_path, sep=None, engine="python")
+
+    # Replace NA values
+    df = df.fillna("NA")
+
+    # -------------------------------
+    # Clean column names
+    # -------------------------------
     df.columns = df.columns.str.strip()
+
+    # -------------------------------
+    # Clean string cells
+    # -------------------------------
     df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
-    # Define full JSON output path
-    json_filename = os.path.splitext(os.path.basename(csv_path))[0] + ".json"
-    json_path = os.path.join(output_dir, json_filename)
-    # Convert to JSON and save
-    df.to_json(json_path, orient="records", indent=4)
-    #print(f"✅ Saved JSON config to: {json_path}")
-    # Load JSON and ensure keys and values are stripped (extra safety)
-    with open(json_path, "r") as f:
-        cfg_list = json.load(f)
+
+    # -------------------------------
+    # Convert to list of dictionaries
+    # -------------------------------
+    cfg_list = df.to_dict(orient="records")
+
+    # Final safety strip
     cfg_list = [
         {k.strip(): (v.strip() if isinstance(v, str) else v) for k, v in cfg.items()}
         for cfg in cfg_list
     ]
-    return cfg_list
 
+    return cfg_list
 
 def load_default_config(filename: str):
     """

@@ -289,8 +289,10 @@ def filter_gwas_vcf_bcftools(
         diff = read - vcf_input
         pct = (diff / read * 100) if read else 0
         log_print(
-            f"{BOLD}\t\t⚠️ Fewer variants prepared for VCF creation: "
+            f"{BOLD}\t\t⚠️ Fewer variants used for VCF creation: "
             f"{diff:,} removed after harmonisation ({pct:.2f}%).{RESET}"
+            f"{read:,} variants were read from the sumstat file by the harmonisation module; "
+            f"only {vcf_input:,} variants were used as input for VCF creation by gwas2vcf.{RESET}"
         )
         log_print(
             "   Possible reasons: variants missing in INFO/EAF file or removed during QC."
@@ -299,8 +301,10 @@ def filter_gwas_vcf_bcftools(
             "   See: 00_harmonised_sumstat/qc_summary/*_gwas2vcf_summary.tsv"
         )
         print(
-            f"{BOLD}\t\t⚠️ Fewer variants prepared for VCF creation: "
-            f"{diff:,} removed after harmonisation ({pct:.2f}%).{RESET}"
+            f"{BOLD}\t\t⚠️ Fewer variants used for VCF creation compared to the provided sumstat: "
+            f"{diff:,} removed after harmonisation ({pct:.2f}%). "
+            f"{read:,} variants were read from the sumstat file by the harmonisation module; "
+            f"only {vcf_input:,} variants were used as input for VCF creation by gwas2vcf.{RESET}"
         )
         print(
             "\t\t\t Possible reasons: variants missing in INFO/EAF file or removed during QC."

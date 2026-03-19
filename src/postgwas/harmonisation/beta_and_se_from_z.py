@@ -22,6 +22,17 @@ def calculate_beta_and_se_from_z(
     # -------------------------------------------------------
     gwas_outputname = sample_column_dict.get("gwas_outputname", "GWAS")
     output_dir      = sample_column_dict.get("output_folder", ".")
+    eaf_col_name = sample_column_dict.get("eaf_col", "NA")
+
+    if eaf_col_name == "NA" or eaf_col_name not in df.columns:
+        msg = f"❌ CRITICAL ERROR: EAF column '{eaf_col_name}' is missing from the DataFrame. Check your input mappings."
+        log_print(msg)
+        with open(log_file, "w") as f:
+            f.write(log_buffer.getvalue())
+        raise KeyError(msg)  # Force the process to stop 
+ 
+    if "Neff" not in df.columns:
+        raise KeyError("❌ CRITICAL ERROR: 'Neff' column is required for BETA/SE computation.")
 
     log_dir = Path(output_dir) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -89,15 +100,15 @@ def calculate_beta_and_se_from_z(
 
         return df, qc_info, sample_column_dict
 
-    if "zmaf" not in df.columns or "Neff" not in df.columns:
-        raise ValueError("❌ Missing required columns: 'zmaf' and 'Neff' must be present.")
+    if eaf_col not in df.columns or "Neff" not in df.columns:
+        raise ValueError("❌ Missing required columns: 'eaf_col' and 'Neff' must be present.")
 
     # -------------------------------------------------------
     # 3️⃣ Ensure numeric types
     # -------------------------------------------------------
     df = df.with_columns([
         pl.col(imp_z_col).cast(pl.Float64, strict=False),
-        pl.col("zmaf").cast(pl.Float64, strict=False),
+        pl.col(eaf_col).cast(pl.Float64, strict=False),
         pl.col("Neff").cast(pl.Float64, strict=False),
     ])
 
@@ -124,12 +135,13 @@ def calculate_beta_and_se_from_z(
     # 5️⃣ Compute BETA
     # -------------------------------------------------------
     if beta_col == "NA" or beta_col not in df.columns:
-        log_print("🧮 Computing BETA from Z-score...")
+        log_print("🧮 Computing BETA from Z-score... using formula:")
+        log_print("Beta = z / sqrt(2p(1− p)(n + z^2)) : PMID: 29763751")
 
         df = df.with_columns(
             (
                 pl.col(imp_z_col) /
-                (2 * pl.col("zmaf") * (1 - pl.col("zmaf")) *
+                (2 * pl.col(eaf_col) * (1 - pl.col(eaf_col)) *
                  (pl.col("Neff") + pl.col(imp_z_col)**2)).sqrt()
             ).alias("BETA")
         )
@@ -146,12 +158,13 @@ def calculate_beta_and_se_from_z(
     # 6️⃣ Compute SE
     # -------------------------------------------------------
     if se_col == "NA" or se_col not in df.columns:
-        log_print("🧮 Computing SE from Z-score...")
+        log_print("🧮 Computing SE from Z-score... using formula:")
+        log_print("SE = 1 / sqrt(2p(1− p)(n + z^2)) :PMID: 29763751")
 
         df = df.with_columns(
             (
                 1 /
-                (2 * pl.col("zmaf") * (1 - pl.col("zmaf")) *
+                (2 * pl.col(eaf_col) * (1 - pl.col(eaf_col)) *
                  (pl.col("Neff") + pl.col(imp_z_col)**2)).sqrt()
             ).alias("SE")
         )

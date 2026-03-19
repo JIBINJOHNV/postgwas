@@ -11,25 +11,25 @@ USER root
 # We use apt-get for lightweight system libraries.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        gcc g++ make wget git curl bzip2 unzip \
-        libcurl4-openssl-dev libsuitesparse-dev \
-        zlib1g-dev libbz2-dev liblzma-dev \
-        ca-certificates pkg-config \
-        libssl-dev libxml2-dev pigz \
-        libharfbuzz-dev \
-        gnupg \
-        libfribidi-dev \
-        libfreetype6-dev \
-        libpng-dev \
-        libtiff5-dev \
-        libjpeg-dev \
-        libfontconfig1-dev \
-        libgit2-dev \
-        libxml2-dev \
-        libcurl4-openssl-dev \
-        libssl-dev \
-        libeigen3-dev \
-        procps && \
+    gcc g++ make wget git curl bzip2 unzip zip \
+    libcurl4-openssl-dev libsuitesparse-dev \
+    zlib1g-dev libbz2-dev liblzma-dev \
+    ca-certificates pkg-config \
+    libssl-dev libxml2-dev pigz \
+    libharfbuzz-dev \
+    gnupg \
+    libfribidi-dev \
+    libfreetype6-dev \
+    libpng-dev \
+    libtiff5-dev \
+    libjpeg-dev \
+    libfontconfig1-dev \
+    libgit2-dev \
+    libxml2-dev \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    libeigen3-dev \
+    procps && \
     rm -rf /var/lib/apt/lists/*
 
 # =====================================================================
@@ -44,18 +44,18 @@ RUN micromamba create -y -n postgwas -f /tmp/environment.yml && \
 # Install Build Tools -> Install R/Deps -> CLEAN UP
 # We group these to reduce layers
 RUN micromamba install -y -n postgwas -c conda-forge \
-        cmake \
-        mkl \
-        mkl-include \
-        sysroot_linux-64 \
-        gcc_linux-64 \
-        gxx_linux-64 \
-        r-base \
-        r-xml2 \
-        libxml2 \
-        r-matrix \
-        r-data.table \
-        r-survey && \
+    cmake \
+    mkl \
+    mkl-include \
+    sysroot_linux-64 \
+    gcc_linux-64 \
+    gxx_linux-64 \
+    r-base \
+    r-xml2 \
+    libxml2 \
+    r-matrix \
+    r-data.table \
+    r-survey && \
     micromamba run -n postgwas Rscript -e "install.packages('remotes', repos='https://cloud.r-project.org'); remotes::install_github('jianyanglab/gsmr2', dependencies=TRUE)" && \
     micromamba clean --all --yes
 
@@ -68,12 +68,35 @@ RUN micromamba create -y -n vep -c conda-forge -c bioconda ensembl-vep=113 && \
     micromamba clean --all --yes
 
 RUN micromamba create -y -n ldsc -c conda-forge -c bioconda \
-        python=2.7 numpy=1.16 scipy=1.2.1 pandas=0.24.2 bitarray nose pybedtools && \
+    python=2.7 numpy=1.16 scipy=1.2.1 pandas=0.24.2 bitarray nose pybedtools && \
     micromamba clean --all --yes
 
 WORKDIR /opt
 RUN git clone https://github.com/bulik/ldsc.git && \
     rm -rf ldsc/.git
+
+# =====================================================================
+# 3. ENRICHER ENV (New Module)
+# =====================================================================
+# We combine the requested packages into one create command.
+# Note: rpy2 will automatically pull a compatible r-base into this env.
+RUN micromamba create -y -n enricher -c conda-forge -c bioconda \
+    omnipath \
+    gseapy \
+    bgenix \
+    zeep \
+    rpy2 \
+    pandas \
+    requests \
+    networkx \
+    matplotlib \
+    rich-argparse \
+    scipy \
+    "numpy<2.0" \
+    r-webgestaltr \
+    zip \
+    gprofiler-official && \
+    micromamba clean --all --yes
 
 # =====================================================================
 # Build HTSlib + BCFtools (And DELETE SOURCE afterwards)
@@ -145,8 +168,8 @@ RUN micromamba run -n postgwas pip install --upgrade pip && \
     # ONLY remove heavy build-only tools, NOT the sysroot or compilers 
     # that R and its libraries depend on
     micromamba remove -n postgwas -y \
-        cmake \
-        mkl-include && \
+    cmake \
+    mkl-include && \
     micromamba clean --all --yes
 
 # =====================================================================
@@ -156,4 +179,3 @@ ENV HOME=/tmp
 RUN chown -R mambauser:mambauser /opt/postgwas
 USER mambauser
 ENTRYPOINT ["micromamba", "run", "-n", "postgwas"]
-CMD ["postgwas", "--help"]

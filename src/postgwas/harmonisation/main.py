@@ -523,6 +523,16 @@ def gwas_to_vcf_parallel(
     safe_print(f"           Total variants in input file        : {file_cvariant_count:,}")
     safe_print(f"           Total variants read by the python   : {polars_rows:,}")
 
+    # ------------------------------
+    # Fix chromosome and position columns
+    # ------------------------------
+    df,sample_column_dict = fix_chr_pos_column(
+        chromosome=chromosome,
+        df=df,
+        sample_column_dict=sample_column_dict,
+        drop_mt=True,
+    )
+        
     # 1. Call the function ONCE and unpack the results
     is_valid, error_list = validate_gwas_config(sample_column_dict, df)
 
@@ -532,15 +542,7 @@ def gwas_to_vcf_parallel(
         for err in error_list:
             print(f" - {err}")
         sys.exit(1)
-    # -----------------------------
-    # Genome build inference
-    # ------------------------------
-    genome_build_info = genome_build(
-        df,
-        grch37_file,
-        grch38_file,
-        sample_column_dict,
-    )
+
     grch_version = genome_build_info["inferred_build"]
     safe_print(" ")
     safe_print(
@@ -760,7 +762,7 @@ def run_harmonisation_pipeline(
         k.strip(): (v.strip() if isinstance(v, str) else v) 
         for k, v in sample_column_dict.items()
     }
-
+    print(sample_column_dict)
     # Try to create it safely
     try:
         output_folder.mkdir(parents=True, exist_ok=True)

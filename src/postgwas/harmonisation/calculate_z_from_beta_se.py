@@ -50,6 +50,7 @@ def calculate_z_from_beta_se(
     beta_col = sample_column_dict.get("beta_col", "NA")
     se_col   = sample_column_dict.get("se_col", "NA")
 
+
     # --- Validate input columns ---
     if (
         beta_col == "NA" or
@@ -59,11 +60,47 @@ def calculate_z_from_beta_se(
     ):
         raise ValueError("❌ Missing required columns for Z-score computation: BETA and/or SE.")
 
-    # --- Ensure numeric casting ---
+    # 1️⃣ Cast first to ensure numeric operations work
     df = df.with_columns([
         pl.col(beta_col).cast(pl.Float64, strict=False),
         pl.col(se_col).cast(pl.Float64, strict=False)
     ])
+
+    # -------------------------------------------------------
+    # 1️⃣ Filtering: Remove Nulls, Beta=0, and SE <= 0
+    # -------------------------------------------------------
+    n_initial = df.height
+    
+    # Define a filter mask for "invalid" variants
+    # We want to keep: Beta != 0 AND SE > 0 AND neither is Null
+    df = df.filter(
+        (pl.col(beta_col).is_not_null()) &
+        (pl.col(se_col).is_not_null()) &
+        (pl.col(beta_col) != 0) &
+        (pl.col(se_col) > 0)
+    )
+    
+    n_final = df.height
+    n_removed = n_initial - n_final
+
+    # Print to screen (as requested)
+    print(f"  [Chr {chromosome}] Removed {n_removed:,} variants with invalid Beta/SE (Null, Beta=0, or SE<=0).")
+    
+    # Log to file
+    filter_msg = (
+        f"📊 [Chr {chromosome}] Filtering stats for variants with "
+        f"Missing Beta/SE, Zero Beta, or Non-positive SE:\n"
+        f"   • Initial: {n_initial:,}\n"
+        f"   • Removed: {n_removed:,}\n"
+        f"   • Remaining: {n_final:,}"
+    )
+
+    print(filter_msg)      # Prints to your terminal screen
+    log_print(filter_msg) # Writes to your per-chromosome log file
+
+    # Update QC info with your specific keys
+    qc_info["variants_removed_invalid_beta_se"] = n_removed
+    qc_info["variants_after_filter_invalid_beta_se"] = n_final
 
     # --- Compute Z ---
     log_print("📈 Computing imp_z_col = BETA / SE …")
