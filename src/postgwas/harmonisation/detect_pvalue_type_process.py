@@ -94,7 +94,7 @@ def convert_pval_to_mlogp(
         pl.col(output_col).mean().alias("mean_LP"),
         pl.col(output_col).median().alias("median_LP"),
     ).to_dicts()[0]
-    print(f"✅ Converted raw p-values → '{output_col}'")
+    print(f"✅ Converted raw p-values to -log10(p) and saved to column: '{output_col}'")
     print(
         f"LP summary: min={stats['min_LP']:.3f}, max={stats['max_LP']:.3f}, "
         f"mean={stats['mean_LP']:.3f}, median={stats['median_LP']:.3f}"
@@ -157,7 +157,7 @@ def convert_mlogp_to_pval(
         pl.col(output_col).mean().alias("mean_PVAL"),
         pl.col(output_col).median().alias("median_PVAL"),
     ).to_dicts()[0]
-    print(f"\t\t\t\t✅ Converted -log10(p) → '{output_col}' : After Convetion the summary ")
+    print(f"\t\t\t\t✅ Converted -log10(p) values to raw p-value and saved to column: '{output_col}'")
     print(
         f"\t\t\t\tPVAL summary: min={stats['min_PVAL']:.3e}, max={stats['max_PVAL']:.3e}, "
         f"\t\t\t\tmean={stats['mean_PVAL']:.3e}, median={stats['median_PVAL']:.3e}"

@@ -28,6 +28,8 @@ def filter_gwas_vcf_bcftools(
     max_mem: str = "5G",
     extra_options: Optional[Dict[str, Any]] = None,
 ) -> str:
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
     
     vcf_name = os.path.basename(vcf_path)
     genomeversion = None
@@ -204,7 +206,7 @@ def filter_gwas_vcf_bcftools(
     with open(log_file, "w") as f:
         f.write(log_buffer.getvalue())
 
-    print("\t\t🧪 Variant filtering summary:")
+    print("\t\t\t🧪 Variant filtering summary:")
     # ----------------------------
     # Inclusion (retention)
     # ----------------------------
@@ -254,19 +256,16 @@ def filter_gwas_vcf_bcftools(
     # ----------------------------
     print("")
     if extra_options !=None:
-        print(f"\t\t\t📊 Variants in the input file                         : {extra_options['total_variant_infile']:,}")
-        print(f"\t\t\t📊 Variants successfully read by harmonisation module : {extra_options['total_variant_read']:,}")
-        print(f"\t\t\t📊 Variants USED for VCF creation                     : {extra_options['total_variant_in_vcf_input']:,}")
-    print(f"\t\t\t📊 Variants BEFORE filtering                          : {pre_variants:,}")
-    print(f"\t\t\t📊 Variants AFTER filtering                           : {post_variants:,}")
+        print(f"\t\t\t📊 Variants in the input file                                     : {extra_options['total_variant_infile']:,}")
+        print(f"\t\t\t📊 Variants successfully read by harmonisation module             : {extra_options['total_variant_read']:,}")
+        print(f"\t\t\t📊 Variants USED for VCF creation                                 : {extra_options['total_variant_in_vcf_input']:,}")
+    print(f"\t\t\t📊 Variants IN the VCF FILE BEFORE filtering                      : {pre_variants:,}")
+    print(f"\t\t\t📊 Variants IN the VCF FILE AFTER filtering                       : {post_variants:,}")
 
     if pre_variants is not None and post_variants is not None:
-        print(f"\t\t\t🧮 Variants REMOVED during filtering                  : {pre_variants - post_variants}")
+        print(f"\t\t\t🧮 Variants REMOVED during filtering                              : {pre_variants - post_variants}")
     
     print("")
-
-    BOLD = "\033[1m"
-    RESET = "\033[0m"
 
     infile = extra_options["total_variant_infile"]
     read = extra_options["total_variant_read"]
@@ -300,18 +299,25 @@ def filter_gwas_vcf_bcftools(
         log_print(
             "   See: 00_harmonised_sumstat/qc_summary/*_gwas2vcf_summary.tsv"
         )
+        indent = "\t" * 4
+
         print(
-            f"{BOLD}\t\t⚠️ Fewer variants used for VCF creation compared to the provided sumstat: "
-            f"{diff:,} removed after harmonisation ({pct:.2f}%). "
-            f"{read:,} variants were read from the sumstat file by the harmonisation module; "
-            f"only {vcf_input:,} variants were used as input for VCF creation by gwas2vcf.{RESET}"
+            f"\n{indent}{BOLD}⚠️ ⚠️ VARIANT LOSS DURING HARMONISATION WARNING{RESET}\n"
+            f"{indent}{'-'*60}\n"
+            f"{indent}• Variants read from sumstats file: {read:,}\n"
+            f"{indent}• Variants used for VCF creation  : {vcf_input:,}\n"
+            f"{indent}• Removed after harmonisation     : {diff:,} ({pct:.2f}%)\n" 
+            f"\n"
+            f"{indent}Possible reasons variants in sumstat file may be :\n"
+            f"{indent}    ├─ Missing in INFO file\n"
+            f"{indent}    ├─ Missing in EAF file\n"
+            f"{indent}Or Removed during QC:\n"
+            f"{indent}         • Null BETA / SE\n"
+            f"{indent}         • BETA = 0\n"
+            f"{indent}         • SE ≤ 0\n"
+            f"{indent}{'-'*60}\n" 
         )
-        print(
-            "\t\t\t Possible reasons: variants missing in INFO/EAF file or removed during QC."
-        )
-        print(
-            "\t\t\t See: 00_harmonised_sumstat/qc_summary/*_gwas2vcf_summary.tsv"
-        )
+    
     # 3️⃣ VCF input → Pre-filter
     if pre_variants < vcf_input:
         diff = vcf_input - pre_variants

@@ -66,7 +66,7 @@ def is_beta_or_or(
     if negative_frac > 0.10:
         log_print(f"✅ Detected as Beta: {negative_frac*100:.2f}% values are negative.")
         print(f"                ✅ Effect size Detected as Beta for chromosome {chromosome}: {negative_frac*100:.2f}% values are negative.")
-
+        print(f" ")
         sample_column_dict["effect_type"] = "beta"
         sample_column_dict["beta_col"] = effect_col
         qc_info["effect_type"] = "beta"

@@ -38,6 +38,7 @@ from postgwas.harmonisation.io import (
     read_config,
     find_resource_file_path,
     load_default_config,
+    check_file_truncation
 )
 from postgwas.harmonisation.validator import validate_gwas_config
 from postgwas.harmonisation.preprocess import split_chr_pos
@@ -504,7 +505,7 @@ def gwas_to_vcf_parallel(
     """
     safe_print(f"          🔹 Starting harmonisation + GWAS-to-VCF pipeline with max_workers={max_workers} ")
     safe_print(f"                   for {sumstat_file}")
-
+    
     # ------------------------------
     # Create output path
     # ------------------------------
@@ -523,15 +524,6 @@ def gwas_to_vcf_parallel(
     safe_print(f"           Total variants in input file        : {file_cvariant_count:,}")
     safe_print(f"           Total variants read by the python   : {polars_rows:,}")
 
-    # ------------------------------
-    # Fix chromosome and position columns
-    # ------------------------------
-    df,sample_column_dict = fix_chr_pos_column(
-        chromosome=chromosome,
-        df=df,
-        sample_column_dict=sample_column_dict,
-        drop_mt=True,
-    )
         
     # 1. Call the function ONCE and unpack the results
     is_valid, error_list = validate_gwas_config(sample_column_dict, df)
@@ -542,6 +534,15 @@ def gwas_to_vcf_parallel(
         for err in error_list:
             print(f" - {err}")
         sys.exit(1)
+
+    # Genome build inference
+    # ------------------------------
+    genome_build_info = genome_build(
+        df,
+        grch37_file,
+        grch38_file,
+        sample_column_dict,
+    )
 
     grch_version = genome_build_info["inferred_build"]
     safe_print(" ")
@@ -582,10 +583,13 @@ def gwas_to_vcf_parallel(
             # skip files without chr pattern
             continue
 
-    n_chr = len(final_chr_files)
-    # safe_print(
-    #     f"🔹    Processing {n_chr} per-chromosome files with max_workers={max_workers}"
-    # )
+    n_chr = len(final_chr_files) 
+    max_workers = min(n_chr, max_workers) 
+    safe_print(
+        f"          🔹 [INFO] Processing {n_chr} chromosomes in parallel using {max_workers} workers"
+    )
+    safe_print(" ")
+    
     if n_chr == 0:
         raise RuntimeError(
             "No per-chromosome files found after splitting. "
@@ -663,7 +667,7 @@ def gwas_to_vcf_parallel(
                         safe_print(f"{msg} See logs/{sample_column_dict['gwas_outputname']}_chr{chrom_res}.log")
                         errors_seen.append(msg + " " + qc.get("error", ""))
                     else:
-                        safe_print(f"               ✅ [{completed}/{total}] Completed chromosome {chrom_res}")
+                        safe_print(f"                ✅ [{completed}/{total}] Completed chromosome {chrom_res}")
                 except Exception as exc:
                     msg = f"❌ [ERROR] Chromosome {chrom} crashed: {exc}"
                     safe_print(msg)
@@ -720,6 +724,9 @@ def run_harmonisation_pipeline(
     External behaviour (arguments, outputs, filenames) is retained.
     Implementation is made more robust for Docker / Linux.
     """
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
+    
     # -----------------------------------------------------
     # Load DEFAULT config
     # -----------------------------------------------------
@@ -752,7 +759,7 @@ def run_harmonisation_pipeline(
 
     print("")
     safe_print(f"            To compare GWAS Alternative allele frequency with External allele freqency use : {comparison_cols} column")
-    safe_print(f"            present in the file named {default_comparison_af}")
+    safe_print(f"            present in the dataset {default_comparison_af}")
     safe_print("")
     # Save normalized output_folder  back to dict
     output_folder = output_folder / "00_harmonised_sumstat"
@@ -762,7 +769,6 @@ def run_harmonisation_pipeline(
         k.strip(): (v.strip() if isinstance(v, str) else v) 
         for k, v in sample_column_dict.items()
     }
-    print(sample_column_dict)
     # Try to create it safely
     try:
         output_folder.mkdir(parents=True, exist_ok=True)
@@ -818,6 +824,13 @@ def run_harmonisation_pipeline(
         raise ValueError(
             "\n❌ One or more required files are invalid:\n" + "\n".join(errors)
         )
+
+    # --------------------------------------------------------
+    # STEP 0.5 — Check GWAS file truncation OR EXISTS
+    # ---------------------------------------------------------
+    check_file_truncation(
+        file_path=sample_column_dict["sumstat_file"]
+    )
 
     # ---------------------------------------------------------
     # STEP 1 — FULL harmonisation + per-chromosome GWAS2VCF
@@ -926,6 +939,11 @@ def run_harmonisation_pipeline(
     total_variants_in_gwastovcf = int(snp_id_df['n_unique'].astype(int).sum())
     gwas_to_vcf_qc_df.to_csv(Path(outdir) / "qc_summary" / f"{sample_column_dict['gwas_outputname']}_gwas2vcf_summary.tsv",sep="\t",index=None)
     
+    indent = "\t" * 3
+    print(
+        f"\n{indent}{BOLD}🔎 NOTE:{RESET}\n"
+        f"{indent}{BOLD}Variant filtering is performed only to assess the total number of high-quality variants.{RESET}\n"
+    )    
     variant_qc_summary={
                     "total_variant_infile": qc_results.get( "total_variant_infile", pd.NA),
                     "total_variant_read": qc_results.get( "total_variant_read", pd.NA ),
@@ -956,6 +974,7 @@ def run_harmonisation_pipeline(
     #safe_print(f"✅ Filtered VCF written to: {qc_passed_vcf}")
 
     filtered_vcf_path = qc_passed_vcf['filtered_vcf']
+
 
     qc_passed_vcf_df = run_qc_summary(
         vcf_path=filtered_vcf_path,

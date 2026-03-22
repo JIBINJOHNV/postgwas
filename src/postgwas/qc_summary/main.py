@@ -46,7 +46,8 @@ def run_qc_summary(
         threads=n_threads,
         bcftools_bin=bcftools_bin
     )
-    print("\t\t\t\t\t postgwas qc summary module started running")
+    print(" ") 
+    print("\t\t\tpostgwas qc summary module started running")
     print(" ")
     
     # ------------------------------------------------------------------
