@@ -399,12 +399,39 @@ def run_flames_runner(args, ctx):
     finally:
         args.outdir = root
 
+ 
+# def run_heritability_runner(args, ctx):
+#     root = setup_subdir(args, "heritability")
+
+#     # (typo preserved from your code: ldsc_inut)
+#     args.ldsc_inut = ctx["formatter"]["ldsc"]["ldsc_file"] 
+#     if args.sample_prev is None and args.population_prev is not None:
+#         print("Since Population prevalence provided and sample prevalence is not provided, using inferred sample prevalence from summary statistics")
+#         print(f"Sample Prevalence = median(N_CAS) / (median(N_CAS) + median(N_CON))")
+#         print(f"Sample Prevalence = {ctx['formatter']['ldsc']['sample_prev']}")
+#         args.sample_prev = ctx["formatter"]["ldsc"]["sample_prev"]
+#     try:
+#         outputs = run_ldsc_direct(args)
+#         ctx["heritability"] = outputs
+#         return outputs
+#     finally:
+#         args.outdir = root
 
 def run_heritability_runner(args, ctx):
     root = setup_subdir(args, "heritability")
 
-    # (typo preserved from your code: ldsc_inut)
     args.ldsc_inut = ctx["formatter"]["ldsc"]["ldsc_file"]
+
+    if args.samp_prev is None and args.pop_prev is not None:
+        print("Since population prevalence is provided and sample prevalence is not provided, using inferred sample prevalence from summary statistics")
+
+        print("Sample Prevalence = median(N_CAS) / (median(N_CAS) + median(N_CON))")
+
+        sprev = ctx["formatter"]["ldsc"]["sample_prev"]
+
+        print(f"Sample Prevalence = {sprev:.4f}")
+
+        args.samp_prev = sprev
 
     try:
         outputs = run_ldsc_direct(args)
@@ -412,7 +439,7 @@ def run_heritability_runner(args, ctx):
         return outputs
     finally:
         args.outdir = root
-
+        
 
 def run_manhattan_runner(args, ctx):
     root = setup_subdir(args, "manhattan")
