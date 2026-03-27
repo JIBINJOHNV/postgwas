@@ -30,7 +30,7 @@ def validate_alphanumeric(value: str) -> str:
     if value is None:
         raise argparse.ArgumentTypeError("Value cannot be empty.")
     v = value.strip()
-    if not re.match(r'^[A-Za-z0-9_]+$', v):
+    if not re.match(r'^[A-Za-z0-9_-]+$', v):
         raise argparse.ArgumentTypeError(
             f"Invalid value '{value}': must contain only letters, digits, and underscores."
         )
