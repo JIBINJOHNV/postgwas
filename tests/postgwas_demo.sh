@@ -8,7 +8,7 @@ docker run --platform=linux/amd64 \
 docker run --platform=linux/amd64 \
   -v /Users/JJOHN41/:/Users/JJOHN41/ \
   -it jibinjv/postgwas:1.3 python /opt/postgwas/src/postgwas/scripts/create_sumstat_map_pl.py \
-  --input /Users/JJOHN41/Downloads/ukb_ppp_testing/raw_data \
+  --input /Users/JJOHN41/Downloads/ukb_ppp_testing/raw_data/ \
   --output-path /Users/JJOHN41/Downloads/ukb_ppp_testing/vcf_files/ukb_ppp_testing_input_susmstat.csv \
   --resource-folder /Users/JJOHN41/Documents/software_resources/resourses/postgwas/gwas2vcf/ \
   --harmonisation-output-path /Users/JJOHN41/Downloads/ukb_ppp_testing/vcf_files/
@@ -34,6 +34,24 @@ docker run --platform=linux/amd64 \
         --max-mem 50G \
         --config /Users/JJOHN41/Downloads/ukb_ppp_testing/vcf_files/ukb_ppp_testing_input_susmstat.csv \
         --defaults /Users/JJOHN41/Documents/developing_software/postgwas/tests/harmonisation.yaml
+
+
+
+
+docker run --platform=linux/amd64 \
+  -v /Users/JJOHN41/:/Users/JJOHN41/ \
+  -it jibinjv/postgwas:1.3 postgwas sumstat_filter \
+  --vcf /Users/JJOHN41/Downloads/ukb_ppp_testing/vcf_files/ITGB2_P05107_OID20315_v1_Cardiometabolic/00_harmonised_sumstat/ITGB2_P05107_OID20315_v1_Cardiometabolic_GRCh37_merged.vcf.gz \
+  --sample_id ITGB2_P05107_OID20315_v1_Cardiometabolic \
+  --outdir /Users/JJOHN41/Downloads/ukb_ppp_testing/vcf_files/ITGB2_P05107_OID20315_v1_Cardiometabolic/01_filtered_vcf \
+  --maf-cutoff 0.01 \
+  --nthreads 10 \
+  --external-af-name EUR \
+  --allelefreq-diff-cutoff 0.2 \
+  --info-cutoff 0.7 \
+  --exclude-palindromic \
+  --remove-mhc \
+  --include-indels
 
 
 docker run --platform=linux/amd64 \

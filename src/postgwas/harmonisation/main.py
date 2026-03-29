@@ -863,7 +863,7 @@ def run_harmonisation_pipeline(
 
     qc_summary_path = (
         Path(sample_column_dict["output_folder"])
-        / f"{sample_column_dict['gwas_outputname']}_QC_sumamry.txt"
+        / f"{sample_column_dict['gwas_outputname']}_QC_summary.txt"
     )
     _save_qc_results(qc_results=qc_results, out_file=qc_summary_path)
 
