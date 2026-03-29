@@ -104,6 +104,8 @@ def run_harmonisation(args):
     retry_queue = []
 
     for user_cfg in cfg_list:
+        sample_name = user_cfg.get("gwas_outputname", "UNKNOWN")
+        input_file = user_cfg.get("sumstat_file", "UNKNOWN")
         try:
             sample_name, input_file, result = run_one(user_cfg)
 

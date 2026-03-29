@@ -1,10 +1,10 @@
 default_eaf: "panukb"               # ['fingen', 'panukb', '1000G']
 default_info: "panukb"              # ['fingen', 'panukb']
-default_eaf_column: "EAS"
+default_eaf_column: "EUR"
 default_info_column: "INFO"
-default_comparison_af_column: "EAS"  # "INFO/AFR,INFO/EAS,INFO/EUR,INFO/SAS"
+default_comparison_af_column: "EUR"  # "INFO/AFR,INFO/EAS,INFO/EUR,INFO/SAS"
 default_dbsnp: "dbSNP157"
-default_comparison_af_file: "1000G"      # ['1000G', "ALFA"]
+default_comparison_af_file: "ALFA"      # ['1000G', "ALFA"]
 maf_eaf_decision_cutoff: 0.95
 
 resource_folder: "/Users/JJOHN41/Documents/software_resources/resourses/postgwas/gwas2vcf/"

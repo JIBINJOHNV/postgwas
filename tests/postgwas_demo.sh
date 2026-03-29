@@ -8,10 +8,10 @@ docker run --platform=linux/amd64 \
 docker run --platform=linux/amd64 \
   -v /Users/JJOHN41/:/Users/JJOHN41/ \
   -it jibinjv/postgwas:1.3 python /opt/postgwas/src/postgwas/scripts/create_sumstat_map_pl.py \
-  --input /Users/JJOHN41/Downloads/kadoorie_biobank/raw_data \
-  --output-path /Users/JJOHN41/Downloads/kadoorie_biobank/vcf_files/kadoorie_biobank_input_susmstat.csv \
-  --resource-folder /Users/JJOHN41/Documents/software_resources/resourses/postgwas/ \
-  --harmonisation-output-path /Users/JJOHN41/Downloads/kadoorie_biobank/vcf_files/
+  --input /Users/JJOHN41/Downloads/ukb_ppp_testing/raw_data \
+  --output-path /Users/JJOHN41/Downloads/ukb_ppp_testing/vcf_files/ukb_ppp_testing_input_susmstat.csv \
+  --resource-folder /Users/JJOHN41/Documents/software_resources/resourses/postgwas/gwas2vcf/ \
+  --harmonisation-output-path /Users/JJOHN41/Downloads/ukb_ppp_testing/vcf_files/
 
 
 
@@ -21,8 +21,8 @@ docker run --platform=linux/amd64 \
   -v /mnt/fast/:/mnt/fast/ \
   -it jibinjv/postgwas:1.3 bash 
 
-sample_id="PGC3_SCZ_european"
-base_dir='/Users/JJOHN41/Documents/developing_software/data/outdir/'
+sample_id="ukb_ppp_testing"
+base_dir='/Users/JJOHN41/Downloads/ukb_ppp_testing/vcf_files/'
 resourse_folder="/Users/JJOHN41/Documents/software_resources/resourses/postgwas/"
 genome_version="GRCh37"
 
@@ -32,7 +32,7 @@ docker run --platform=linux/amd64 \
     -it jibinjv/postgwas:1.3 postgwas harmonisation \
         --nthreads 10 \
         --max-mem 50G \
-        --config /Users/JJOHN41/Downloads/kadoorie_biobank/vcf_files/kadoorie_biobank_input_susmstat.csv \
+        --config /Users/JJOHN41/Downloads/ukb_ppp_testing/vcf_files/ukb_ppp_testing_input_susmstat.csv \
         --defaults /Users/JJOHN41/Documents/developing_software/postgwas/tests/harmonisation.yaml
 
 

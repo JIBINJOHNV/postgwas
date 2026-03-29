@@ -1,103 +1,14 @@
-from __future__ import annotations
-
-import io
-import os
-import re
+from pathlib import Path
 import shutil
 import subprocess
-from pathlib import Path
+import io
+import re
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Optional
 
 
 # ============================================================
-# Helpers
+# 1. GWAS → VCF (bcftools munge)
 # ============================================================
-
-def _assert_exists(path_like, label: str = "file") -> Path:
-    p = Path(path_like)
-    if not p.exists():
-        raise FileNotFoundError(f"Missing required {label}: {p}")
-    return p
-
-
-def _assert_nonempty(path_like, label: str = "file") -> Path:
-    p = Path(path_like)
-    if not p.exists():
-        raise FileNotFoundError(f"Expected output {label} not found: {p}")
-    if p.stat().st_size == 0:
-        raise RuntimeError(f"Expected output {label} is empty: {p}")
-    return p
-
-
-def _safe_replace_gz_and_index(tmp_gz: Path, final_gz: Path) -> None:
-    """
-    Atomically replace final .vcf.gz with tmp .vcf.gz and also move .tbi if present.
-    """
-    _assert_nonempty(tmp_gz, "temporary gz output")
-    os.replace(tmp_gz, final_gz)
-
-    tmp_tbi = Path(str(tmp_gz) + ".tbi")
-    final_tbi = Path(str(final_gz) + ".tbi")
-    if tmp_tbi.exists():
-        os.replace(tmp_tbi, final_tbi)
-
-
-def _count_variants(vcf_gz: Path) -> int:
-    """
-    Count non-header records in a VCF/BCF using bcftools view -H.
-    """
-    result = subprocess.run(
-        ["bash", "-c", f'bcftools view -H "{vcf_gz}" | wc -l'],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    if result.returncode != 0:
-        return -1
-    try:
-        return int(result.stdout.strip())
-    except Exception:
-        return -1
-
-
-def _run_bcftools_step(args, log_file: Path, step_name: str) -> None:
-    """
-    Run a single command and capture stdout/stderr to a log file.
-    Raises RuntimeError on failure.
-    """
-    result = subprocess.run(
-        args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-
-    with log_file.open("a") as lf:
-        lf.write(f"\n[STEP {step_name}] CMD: {' '.join(map(str, args))}\n")
-        if result.stdout:
-            lf.write("[STDOUT]\n")
-            lf.write(result.stdout)
-            if not result.stdout.endswith("\n"):
-                lf.write("\n")
-        if result.stderr:
-            lf.write("[STDERR]\n")
-            lf.write(result.stderr)
-            if not result.stderr.endswith("\n"):
-                lf.write("\n")
-        lf.write(f"[EXIT CODE] {result.returncode}\n")
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"bcftools step '{step_name}' failed with exit code {result.returncode}. "
-            f"See log: {log_file}"
-        )
-
-
-# ============================================================
-# 1. GWAS → VCF via bcftools +munge
-# ============================================================
-
 def run_bcftools_munge(
     output_dir: str,
     gwas_outputname: str,
@@ -105,58 +16,96 @@ def run_bcftools_munge(
     genome_fasta_file: str,
     grch_version: str,
 ) -> str:
-    """
-    Run bcftools +munge → bcftools norm → bcftools sort to convert GWAS summary stats to VCF.
 
-    Returns
-    -------
-    str
-        Path to final VCF.gz
-    """
-    outdir = Path(output_dir).resolve()
+    outdir = Path(output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
-
-    log_dir = outdir / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"{gwas_outputname}_chr{chr}_bcftools_munge.log"
 
     input_file = outdir / f"{gwas_outputname}_chr{chr}_vcf_input.tsv"
     column_file = outdir / f"{gwas_outputname}_chr{chr}_column_mapping.tsv"
     output_vcf = outdir / f"{gwas_outputname}_chr{chr}_{grch_version}.vcf.gz"
 
-    _assert_exists(input_file, "munge input TSV")
-    _assert_exists(column_file, "munge column mapping TSV")
-    _assert_exists(genome_fasta_file, "reference FASTA")
+    if not input_file.exists():
+        raise FileNotFoundError(f"[chr{chr}] Missing input: {input_file}")
 
     cmd = [
         "bash", "-c",
-        (
-            f'bcftools +munge --no-version '
-            f'--columns-file "{column_file}" '
-            f'--fasta-ref "{genome_fasta_file}" '
-            f'--sample-name "{gwas_outputname}" '
-            f'"{input_file}" '
-            f'| bcftools norm -m-any -d exact '
-            f'| bcftools sort -Oz -o "{output_vcf}" --write-index=tbi'
-        )
+        f"""
+        bcftools +munge --no-version \
+            --columns-file "{column_file}" \
+            --fasta-ref "{genome_fasta_file}" \
+            --sample-name "{gwas_outputname}" \
+            "{input_file}" |
+        bcftools norm -m-any -d exact |
+        bcftools sort -Oz -o "{output_vcf}" --write-index=tbi
+        """
     ]
 
-    with log_file.open("a") as lf:
-        lf.write(f"▶ Starting bcftools munge for chr{chr}\n")
-
-    _run_bcftools_step(cmd, log_file, f"munge_chr{chr}")
-
-    _assert_nonempty(output_vcf, "munge output VCF.gz")
-    with log_file.open("a") as lf:
-        lf.write(f"✅ Completed: {output_vcf}\n")
-
+    subprocess.run(cmd, check=True)
     return str(output_vcf)
 
 
 # ============================================================
-# 2. SAFE bcftools annotation + liftover
+# HELPER: Run bcftools step
 # ============================================================
+def _run_bcftools_step(cmd, log_file, step_name, chromosome):
+    with open(log_file, "a") as lf:
+        lf.write(f"\n[chr{chromosome}] === {step_name} ===\n")
+        result = subprocess.run(cmd, stdout=lf, stderr=lf, text=True)
 
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"[chr{chromosome}] ❌ STEP FAILED: {step_name}\nCheck log: {log_file}"
+            )
+
+
+# ============================================================
+# HELPER: Variant count (safe)
+# ============================================================
+def get_vcf_variant_count(vcf_path: str):
+    result = subprocess.run(
+        ["bcftools", "index", "-n", vcf_path],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode == 0:
+        return int(result.stdout.strip())
+
+    return None  # safe fallback
+
+
+# ============================================================
+# HELPER: Logging stats
+# ============================================================
+def log_variant_stats(log, step, current, previous, original, chromosome):
+
+    prefix = f"[chr{chromosome}]"
+
+    if current is None:
+        log(f"{prefix} ⚠️ {step}: variant count unavailable")
+        return
+
+    msg = f"{prefix} 📊 {step}: {current:,}"
+
+    if previous:
+        drop_prev = previous - current
+        pct_prev = (drop_prev / previous) * 100
+        msg += f" | Δprev: -{drop_prev:,} ({pct_prev:.2f}%)"
+
+    if original:
+        drop_orig = original - current
+        pct_orig = (drop_orig / original) * 100
+        msg += f" | Δorig: -{drop_orig:,} ({pct_orig:.2f}%)"
+
+    log(msg)
+
+    if previous and current < previous * 0.8:
+        log(f"{prefix} 🚨 WARNING: >20% variant drop at {step}")
+
+
+# ============================================================
+# 2. ANNOTATION + LIFTOVER PIPELINE
+# ============================================================
 def run_bcftools_annot(
     output_dir: str,
     gwas_outputname: str,
@@ -170,350 +119,327 @@ def run_bcftools_annot(
     grch_version: str,
     threads: int = 5,
 ) -> str:
-    """
-    bcftools annotation + csq + liftover.
-    Preserves your original design:
-      - pre-normalize
-      - dbSNP annotate
-      - append unique allele-aware ID
-      - EAF annotation
-      - CSQ becomes final same-name source VCF via safe temp replace
-      - liftover with reject file in compressed VCF format
-    """
-    outdir = Path(output_dir).resolve()
+
+    outdir = Path(output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
 
     log_dir = outdir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"{gwas_outputname}_chr{chromosome}_bcftools_annot.log"
+    log_file = log_dir / f"{gwas_outputname}_chr{chromosome}.log"
 
-    def log(msg: str) -> None:
-        with log_file.open("a") as lf:
+    def log(msg):
+        with open(log_file, "a") as lf:
             lf.write(msg + "\n")
 
-    # -------------------------------------------------------
-    # Paths
-    # -------------------------------------------------------
     input_vcf = outdir / f"{gwas_outputname}_chr{chromosome}_{grch_version}.vcf.gz"
-    output1_vcf = outdir / f"{gwas_outputname}_chr{chromosome}_{grch_version}_ID.vcf.gz"
-    output2_vcf = outdir / f"{gwas_outputname}_chr{chromosome}_{grch_version}_EAF.vcf.gz"
-    output3_vcf = outdir / f"{gwas_outputname}_chr{chromosome}_{grch_version}_CSQ.vcf.gz"
 
-    if grch_version == "GRCh37":
-        target_build = "GRCh38"
-    else:
-        target_build = "GRCh37"
+    if not input_vcf.exists():
+        raise FileNotFoundError(f"[chr{chromosome}] Missing VCF: {input_vcf}")
 
-    target_vcf = outdir / f"{gwas_outputname}_chr{chromosome}_{target_build}.vcf.gz"
-    reject_vcf = outdir / f"{gwas_outputname}_chr{chromosome}_{target_build}_notlifted.vcf.gz"
+    original_vcf = outdir / f"{gwas_outputname}_chr{chromosome}_{grch_version}_ORIGINAL.vcf.gz"
 
-    tmp_norm = Path(str(output1_vcf) + ".pre_norm.vcf.gz")
-    csq_tmp_vcf = Path(str(input_vcf) + ".csq.tmp.vcf.gz")
+    if not original_vcf.exists():
+        shutil.copy2(input_vcf, original_vcf)
+        shutil.copy2(f"{input_vcf}.tbi", f"{original_vcf}.tbi")
 
-    # -------------------------------------------------------
-    # Input validation
-    # -------------------------------------------------------
-    _assert_exists(input_vcf, "input VCF.gz")
-    _assert_exists(str(input_vcf) + ".tbi", "input VCF index")
-    _assert_exists(default_dbsnp_file, "dbSNP annotation VCF/BCF")
-    _assert_exists(external_eaf_file, "external EAF annotation file")
-    _assert_exists(genome_fasta_file, "source genome FASTA")
-    _assert_exists(target_genome_fasta_file, "target genome FASTA")
-    _assert_exists(gff_file, "GFF annotation file")
-    _assert_exists(chain_file, "liftover chain file")
+    norm_vcf = outdir / f"{gwas_outputname}_chr{chromosome}_{grch_version}_NORM.vcf.gz"
+    id_vcf   = outdir / f"{gwas_outputname}_chr{chromosome}_{grch_version}_ID.vcf.gz"
+    af_vcf   = outdir / f"{gwas_outputname}_chr{chromosome}_{grch_version}_EAF.vcf.gz"
+    csq_vcf  = outdir / f"{gwas_outputname}_chr{chromosome}_{grch_version}_CSQ.vcf.gz"
 
-    log(f"▶ Starting bcftools annotation for chromosome {chromosome}")
+    target_build = "GRCh38" if grch_version == "GRCh37" else "GRCh37"
+    target_vcf = outdir / f"{gwas_outputname}_chr{chromosome}_{target_build}_CSQ.vcf.gz"
+    reject_vcf = outdir / f"{gwas_outputname}_chr{chromosome}_{target_build}_CSQ_notlifted.vcf.gz"
 
-    # -------------------------------------------------------
-    # Step 0: Pre-normalisation
-    # -------------------------------------------------------
-    log("🧹 Step 0: Pre-normalisation...")
-    cmd0 = [
+    counts = {}
+    counts["ORIGINAL"] = get_vcf_variant_count(str(original_vcf))
+    log_variant_stats(log, "ORIGINAL", counts["ORIGINAL"], None, counts["ORIGINAL"], chromosome)
+
+    # STEP 0
+    _run_bcftools_step([
         "bash", "-c",
-        (
-            f'bcftools norm -m-any -d exact "{input_vcf}" '
-            f'| bgzip -c > "{tmp_norm}" '
-            f'&& tabix -f -p vcf "{tmp_norm}"'
-        )
-    ]
-    _run_bcftools_step(cmd0, log_file, "pre_norm_split")
+        f"bcftools norm -m-any -d exact \"{input_vcf}\" | bgzip -c > \"{norm_vcf}\" && tabix -f -p vcf \"{norm_vcf}\""
+    ], log_file, "STEP0_NORM", chromosome)
 
-    _safe_replace_gz_and_index(tmp_norm, input_vcf)
-    log(f"✅ Pre-normalised input replaced in place: {input_vcf}")
+    counts["NORM"] = get_vcf_variant_count(str(norm_vcf))
+    log_variant_stats(log, "NORM", counts["NORM"], counts["ORIGINAL"], counts["ORIGINAL"], chromosome)
 
-    # -------------------------------------------------------
-    # Step 1: dbSNP annotation + unique appended ID
-    # -------------------------------------------------------
-    log("🧬 Step 1: dbSNP annotation + multi-allelic split + appended unique ID...")
-    cmd1 = [
+    # STEP 1
+    _run_bcftools_step([
         "bash", "-c",
-        (
-            f'bcftools annotate '
-            f'--threads {threads} '
-            f'--annotations "{default_dbsnp_file}" '
-            f'--columns CHROM,POS,REF,ALT,ID '
-            f'"{input_vcf}" '
-            f'| bcftools norm -m-any -d exact '
-            f"| bcftools annotate --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' "
-            f'| bgzip -c > "{output1_vcf}" '
-            f'&& tabix -f -p vcf "{output1_vcf}"'
-        )
-    ]
-    _run_bcftools_step(cmd1, log_file, "annotate_norm_split")
-    _assert_nonempty(output1_vcf, "ID-annotated VCF.gz")
+        f"""
+        bcftools annotate --threads {threads} \
+            --annotations "{default_dbsnp_file}" \
+            --columns CHROM,POS,REF,ALT,ID "{norm_vcf}" |
+        bcftools norm -m-any -d exact |
+        bcftools annotate --set-id +'%CHROM\\_%POS\\_%REF\\_%ALT' |
+        bgzip -c > "{id_vcf}" && tabix -f -p vcf "{id_vcf}"
+        """
+    ], log_file, "STEP1_ID", chromosome)
 
-    # -------------------------------------------------------
-    # Step 2: AF annotation
-    # -------------------------------------------------------
-    log("🌍 Step 2: AF annotation...")
-    cmd2 = [
+    counts["ID"] = get_vcf_variant_count(str(id_vcf))
+    log_variant_stats(log, "ID", counts["ID"], counts["NORM"], counts["ORIGINAL"], chromosome)
+
+    # STEP 2
+    _run_bcftools_step([
         "bcftools", "annotate",
         "--threads", str(threads),
-        "--annotations", str(external_eaf_file),
+        "--annotations", external_eaf_file,
         "--columns", "CHROM,POS,REF,ALT,INFO/AFR,INFO/EAS,INFO/EUR,INFO/SAS",
-        "-Oz",
-        "-o", str(output2_vcf),
-        "--write-index=tbi",
-        str(output1_vcf),
-    ]
-    _run_bcftools_step(cmd2, log_file, "af_annotate")
-    _assert_nonempty(output2_vcf, "EAF-annotated VCF.gz")
+        "-Oz", "-o", str(af_vcf), "--write-index=tbi", str(id_vcf)
+    ], log_file, "STEP2_AF", chromosome)
 
-    # -------------------------------------------------------
-    # Step 3: CSQ annotation
-    # Safe temp → atomic replace to keep final name = input_vcf
-    # -------------------------------------------------------
-    log("🧫 Step 3: Functional consequence annotation (bcftools csq)...")
-    cmd3 = [
+    counts["EAF"] = get_vcf_variant_count(str(af_vcf))
+    log_variant_stats(log, "EAF", counts["EAF"], counts["ID"], counts["ORIGINAL"], chromosome)
+
+    # STEP 3
+    _run_bcftools_step([
         "bcftools", "csq",
-        "--fasta-ref", str(genome_fasta_file),
-        "--gff-annot", str(gff_file),
+        "--fasta-ref", genome_fasta_file,
+        "--gff-annot", gff_file,
         "--threads", str(threads),
         "--unify-chr-names", "-,chr,-",
-        "-Oz",
-        "-o", str(csq_tmp_vcf),
+        "-Oz", "-o", str(csq_vcf),
         "--write-index=tbi",
-        str(output2_vcf),
-    ]
-    _run_bcftools_step(cmd3, log_file, "csq")
-    _safe_replace_gz_and_index(csq_tmp_vcf, input_vcf)
-    log(f"✅ CSQ output replaced in place: {input_vcf}")
+        str(af_vcf)
+    ], log_file, "STEP3_CSQ", chromosome)
 
-    # Optional CSQ copy
-    try:
-        shutil.copy2(input_vcf, output3_vcf)
-        shutil.copy2(str(input_vcf) + ".tbi", str(output3_vcf) + ".tbi")
-        log(f"✅ CSQ copy written: {output3_vcf}")
-    except Exception as e:
-        log(f"⚠️ Optional CSQ copy failed: {e}")
+    counts["CSQ"] = get_vcf_variant_count(str(csq_vcf))
+    log_variant_stats(log, "CSQ", counts["CSQ"], counts["EAF"], counts["ORIGINAL"], chromosome)
 
-    # -------------------------------------------------------
-    # Step 4–6: liftover → filter SWAP → norm → sort
-    # Note: --reject-type z is valid and preserved
-    # -------------------------------------------------------
-    log("🧭 Step 4–6: liftover → filter SWAP → sort...")
-    pipeline_cmd = f"""
-        bcftools +liftover "{input_vcf}" --no-version -Ou -- \\
-            --src-fasta-ref "{genome_fasta_file}" \\
-            --fasta-ref "{target_genome_fasta_file}" \\
-            --chain "{chain_file}" \\
-            --reject "{reject_vcf}" \\
-            --reject-type z \\
-        | bcftools view -e 'INFO/SWAP==1 || INFO/SWAP==-1' \\
-        | bcftools norm -m-any -d exact \\
-        | bcftools sort -Oz -o "{target_vcf}" --write-index=tbi
-    """
-    _run_bcftools_step(["bash", "-c", pipeline_cmd], log_file, "liftover_view_sort")
-    _assert_nonempty(target_vcf, "lifted target VCF.gz")
+    # STEP 4: Liftover
+    _run_bcftools_step([
+        "bash", "-c",
+        f"""
+            bcftools +liftover "{csq_vcf}" --no-version -Ou -- \
+                --src-fasta-ref "{genome_fasta_file}" \
+                --fasta-ref "{target_genome_fasta_file}" \
+                --chain "{chain_file}" \
+                --reject "{reject_vcf}" \
+                --reject-type z |
+            bcftools view -e 'INFO/SWAP==1 || INFO/SWAP==-1' |
+            bcftools norm -m-any -d exact |
+            bcftools sort -Oz -o "{target_vcf}" --write-index=tbi
 
-    # -------------------------------------------------------
-    # QC summaries
-    # -------------------------------------------------------
-    lifted_n = _count_variants(target_vcf)
-    rejected_n = _count_variants(reject_vcf) if reject_vcf.exists() else 0
-    source_n = _count_variants(input_vcf)
+            # 🔥 CRITICAL FIX: index reject file if exists
+            if [ -f "{reject_vcf}" ]; then
+                tabix -f -p vcf "{reject_vcf}" || true
+            fi
+        """
+    ], log_file, "STEP4_LIFTOVER", chromosome)
 
-    log(f"[QC] source_variants={source_n}")
-    log(f"[QC] lifted_variants={lifted_n}")
-    log(f"[QC] rejected_variants={rejected_n}")
-    if source_n > 0 and lifted_n >= 0:
-        pct = (lifted_n / source_n) * 100
-        log(f"[QC] lifted_percent={pct:.2f}")
-
-    log(f"✅ DONE → {target_vcf}")
-    return f"Completed bcftools annotation for chr{chromosome}"
+    return str(target_vcf)
 
 
 # ============================================================
-# 3. Concatenate per-chromosome VCFs by build
+# 3. CONCAT FUNCTION
 # ============================================================
-
 def concat_vcfs_by_build(
     output_dir: str,
     gwas_outputname: str,
-    mode: str = "concurrent",
-    threads: int = 4,
-) -> Dict[str, Optional[Path]]:
-    """
-    Concatenate chromosome-wise VCFs for:
-      • GRCh37
-      • GRCh38
-      • GRCh37_notlifted
-      • GRCh38_notlifted
+    grch_version: str,
+):
+    from pathlib import Path
+    import subprocess, re, os
+    from concurrent.futures import ThreadPoolExecutor
 
-    Returns
-    -------
-    dict
-        {
-          "grch37": Path or None,
-          "grch38": Path or None,
-          "notlifted_37": Path or None,
-          "notlifted_38": Path or None
-        }
-    """
-    outdir = Path(output_dir).resolve()
-    log_dir = outdir / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"{gwas_outputname}_concat_vcfs_by_build.log"
+    outdir = Path(output_dir)
+    target_build = "GRCh38" if grch_version == "GRCh37" else "GRCh37"
 
-    log_buffer = io.StringIO()
+    # -------------------------------------------------------
+    # AUTO CPU DISTRIBUTION
+    # -------------------------------------------------------
+    total_cpus = os.cpu_count() or 4
+    max_workers = min(3, total_cpus)
+    threads_per_job = max(1, total_cpus // max_workers)
 
-    def log_write(*args):
-        msg = " ".join(str(a) for a in args)
-        log_buffer.write(msg + "\n")
+    print("\t\t\t\t Started CONCATENATING CHROMOSOMAL VCF FILES")
+    print(f"\t\t\t\t🧠 CPU detected: {total_cpus}")
+    print(f"\t\t\t\t⚙️ Parallel jobs: {max_workers}")
+    print(f"\t\t\t\t🔧 Threads per job: {threads_per_job}")
 
-    def chr_sort_key(path: Path):
-        m = re.search(r"chr(\d+|X|Y|MT)", path.stem)
+    # -------------------------------------------------------
+    # CHR SORT
+    # -------------------------------------------------------
+    def chr_sort_key(path):
+        m = re.search(r"chr(\w+)", path.name)
         if not m:
-            return 999
-        v = m.group(1)
-        if v == "X":
-            return 23
-        if v == "Y":
-            return 24
-        if v == "MT":
-            return 25
-        return int(v)
+            return (1000, path.name)
 
-    all_vcfs = list(outdir.glob(f"{gwas_outputname}_chr*_*GRCh*.vcf.gz"))
-    if not all_vcfs:
-        log_write("❌ No chromosome VCF files found in output directory.")
-        with open(log_file, "w") as f:
-            f.write(log_buffer.getvalue())
-        raise FileNotFoundError("No chromosome VCFs found")
+        v = m.group(1).upper()
+        chr_map = {"X": 23, "Y": 24, "MT": 25, "M": 25}
 
-    valid_vcfs = [
-        f for f in all_vcfs
-        if "_notlifted" not in f.name
-        and (f.name.endswith("_GRCh37.vcf.gz") or f.name.endswith("_GRCh38.vcf.gz"))
+        if v.isdigit():
+            n = int(v)
+            if 1 <= n <= 22:
+                return (n, "")
+
+        if v in chr_map:
+            return (chr_map[v], "")
+
+        return (1000, v)
+
+    # -------------------------------------------------------
+    # 🔥 VALIDATION (AUTO FIX + SKIP BAD FILES)
+    # -------------------------------------------------------
+    def validate_and_fix_vcf(vcf):
+        vcf = Path(vcf)
+
+        if not vcf.exists():
+            print(f"❌ Missing VCF: {vcf}")
+            return None
+
+        # skip tiny files (header-only / broken)
+        if vcf.stat().st_size < 100:
+            print(f"⚠️ Skipping empty VCF: {vcf}")
+            return None
+
+        tbi = Path(str(vcf) + ".tbi")
+
+        # try to auto-index if missing
+        if not tbi.exists():
+            print(f"⚠️ Missing index → attempting to index: {vcf}")
+            try:
+                subprocess.run(
+                    ["tabix", "-f", "-p", "vcf", str(vcf)],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                print(f"❌ Failed to index → skipping: {vcf}")
+                return None
+
+        # final check
+        if not tbi.exists():
+            print(f"❌ Still no index → skipping: {vcf}")
+            return None
+
+        return vcf
+
+    # -------------------------------------------------------
+    # CSQ FILES
+    # -------------------------------------------------------
+    csq_files = list(outdir.glob(f"{gwas_outputname}_chr*_GRCh*_CSQ.vcf.gz"))
+
+    csq_37 = sorted(
+        [validate_and_fix_vcf(f) for f in csq_files if "GRCh37" in f.name],
+        key=chr_sort_key,
+    )
+    csq_37 = [f for f in csq_37 if f]
+
+    csq_38 = sorted(
+        [validate_and_fix_vcf(f) for f in csq_files if "GRCh38" in f.name],
+        key=chr_sort_key,
+    )
+    csq_38 = [f for f in csq_38 if f]
+
+    # -------------------------------------------------------
+    # NOT LIFTED FILES
+    # -------------------------------------------------------
+    notlifted_raw = list(
+        outdir.glob(f"{gwas_outputname}_chr*_{target_build}_CSQ_notlifted.vcf.gz")
+    )
+
+    notlifted_files = sorted(
+        [validate_and_fix_vcf(f) for f in notlifted_raw],
+        key=chr_sort_key,
+    )
+    notlifted_files = [f for f in notlifted_files if f]
+
+    print(f"🔍 Valid notlifted files: {len(notlifted_files)}")
+
+    # -------------------------------------------------------
+    # RAW FILES
+    # -------------------------------------------------------
+    raw_files = [
+        f for f in outdir.glob(f"{gwas_outputname}_chr*_{grch_version}.vcf.gz")
+        if f.name.endswith(f"_{grch_version}.vcf.gz")
+        and all(tag not in f.name for tag in ["_NORM", "_ID", "_EAF", "_CSQ"])
     ]
-    notlifted_vcfs = [f for f in all_vcfs if "_notlifted" in f.name]
 
-    grch37_vcfs = sorted([p for p in valid_vcfs if "GRCh37" in p.name], key=chr_sort_key)
-    grch38_vcfs = sorted([p for p in valid_vcfs if "GRCh38" in p.name], key=chr_sort_key)
-    notlifted_37 = sorted([p for p in notlifted_vcfs if "GRCh37" in p.name], key=chr_sort_key)
-    notlifted_38 = sorted([p for p in notlifted_vcfs if "GRCh38" in p.name], key=chr_sort_key)
+    raw_files = sorted(
+        [validate_and_fix_vcf(f) for f in raw_files],
+        key=chr_sort_key,
+    )
+    raw_files = [f for f in raw_files if f]
 
-    merged_paths: Dict[str, Optional[Path]] = {
-        "grch37": outdir / f"{gwas_outputname}_GRCh37_merged.vcf.gz",
-        "grch38": outdir / f"{gwas_outputname}_GRCh38_merged.vcf.gz",
-        "notlifted_37": outdir / f"{gwas_outputname}_GRCh37_notlifted_merged.vcf.gz",
-        "notlifted_38": outdir / f"{gwas_outputname}_GRCh38_notlifted_merged.vcf.gz",
+    # -------------------------------------------------------
+    # MERGE FUNCTION (SAFE)
+    # -------------------------------------------------------
+    def merge(tag, vcf_list, out):
+        if not vcf_list:
+            print(f"⚠️ [{tag}] No valid files — skipping")
+            return None
+
+        print(f"\t\t\t\t🔧 [{tag}] Merging {len(vcf_list)} files")
+
+        try:
+            subprocess.run([
+                "bcftools", "concat",
+                "-a",
+                "--output-type", "z",
+                "--output", str(out),
+                "--threads", str(threads_per_job),
+                "--write-index=tbi",
+                *map(str, vcf_list)
+            ], check=True)
+
+            print(f"✅ [{tag}] → {out}")
+            return str(out)
+
+        except subprocess.CalledProcessError:
+            print(f"❌ [{tag}] concat failed — skipping")
+            return None
+
+    # -------------------------------------------------------
+    # PARALLEL EXECUTION
+    # -------------------------------------------------------
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {}
+
+        if csq_37:
+            futures["grch37"] = executor.submit(
+                merge, "GRCh37", csq_37,
+                outdir / f"{gwas_outputname}_GRCh37_merged.vcf.gz"
+            )
+
+        if csq_38:
+            futures["grch38"] = executor.submit(
+                merge, "GRCh38", csq_38,
+                outdir / f"{gwas_outputname}_GRCh38_merged.vcf.gz"
+            )
+
+        if raw_files:
+            futures["gwas2vcf"] = executor.submit(
+                merge, f"gwas2vcf_{grch_version}", raw_files,
+                outdir / f"{gwas_outputname}_gwas2vcf_{grch_version}_merged.vcf.gz"
+            )
+
+        if notlifted_files:
+            futures["notlifted"] = executor.submit(
+                merge, f"notlifted_{target_build}", notlifted_files,
+                outdir / f"{gwas_outputname}_notlifted_{target_build}_merged.vcf.gz"
+            )
+
+    # -------------------------------------------------------
+    # WAIT
+    # -------------------------------------------------------
+    results = {
+        "grch37": futures["grch37"].result() if "grch37" in futures else None,
+        "grch38": futures["grch38"].result() if "grch38" in futures else None,
+        "gwas2vcf": futures["gwas2vcf"].result() if "gwas2vcf" in futures else None,
+        "notlifted": futures["notlifted"].result() if "notlifted" in futures else None,
     }
 
-    def merge_vcfs(tag: str, vcf_list: List[Path], out_path: Path) -> Optional[str]:
-        if not vcf_list:
-            log_write(f"⚠️ No VCF files found for {tag}. Skipping.")
-            return None
+    # -------------------------------------------------------
+    # CLEANUP
+    # -------------------------------------------------------
+    os.system(f"rm {outdir}/*_chr*_GRCh*_ORIGINAL.vcf.gz*")
+    os.system(f"rm {outdir}/*_chr*_GRCh*_NORM.vcf.gz*")
+    os.system(f"rm {outdir}/*_chr*_GRCh*_ID.vcf.gz*")
+    os.system(f"rm {outdir}/*_chr*_GRCh*_EAF.vcf.gz*")
+    os.system(f"rm {outdir}/*_chr*_GRCh*_CSQ.vcf.gz*")
+    os.system(f"rm {outdir}/*_chr*_GRCh*.vcf.gz*")
 
-        log_write(f"🔧 [{tag}] Running bcftools concat on {len(vcf_list)} files...")
-
-        result = subprocess.run(
-            [
-                "bcftools", "concat",
-                "--output-type", "z",
-                "--output", str(out_path),
-                "--threads", str(threads),
-                "--write-index=tbi",
-                *[str(f) for f in vcf_list],
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-
-        if result.stdout.strip():
-            log_write(f"[bcftools stdout:{tag}] {result.stdout.strip()}")
-        if result.stderr.strip():
-            log_write(f"[bcftools stderr:{tag}] {result.stderr.strip()}")
-
-        if result.returncode != 0:
-            log_write(f"❌ bcftools concat failed for {tag} (exit {result.returncode})")
-            return None
-
-        if not out_path.exists() or out_path.stat().st_size == 0:
-            log_write(f"❌ [{tag}] output missing or empty: {out_path}")
-            return None
-
-        log_write(f"✅ [{tag}] Merge completed → {out_path}")
-
-        # Clean chromosome-level files for this group only
-        for f in vcf_list:
-            try:
-                f.unlink(missing_ok=True)
-                tbi = Path(str(f) + ".tbi")
-                tbi.unlink(missing_ok=True)
-            except Exception as e:
-                log_write(f"⚠️ [{tag}] cleanup failed for {f}: {e}")
-
-        log_write(f"🧹 [{tag}] Cleaned per-chromosome VCF + index files.")
-        return str(out_path)
-
-    tasks = []
-    results = []
-
-    if mode == "concurrent":
-        with ThreadPoolExecutor(max_workers=4) as ex:
-            if grch37_vcfs:
-                tasks.append(ex.submit(merge_vcfs, "GRCh37", grch37_vcfs, merged_paths["grch37"]))
-            if grch38_vcfs:
-                tasks.append(ex.submit(merge_vcfs, "GRCh38", grch38_vcfs, merged_paths["grch38"]))
-            if notlifted_37:
-                tasks.append(ex.submit(merge_vcfs, "GRCh37_notlifted", notlifted_37, merged_paths["notlifted_37"]))
-            if notlifted_38:
-                tasks.append(ex.submit(merge_vcfs, "GRCh38_notlifted", notlifted_38, merged_paths["notlifted_38"]))
-            results = [t.result() for t in tasks]
-    else:
-        if grch37_vcfs:
-            results.append(merge_vcfs("GRCh37", grch37_vcfs, merged_paths["grch37"]))
-        if grch38_vcfs:
-            results.append(merge_vcfs("GRCh38", grch38_vcfs, merged_paths["grch38"]))
-        if notlifted_37:
-            results.append(merge_vcfs("GRCh37_notlifted", notlifted_37, merged_paths["notlifted_37"]))
-        if notlifted_38:
-            results.append(merge_vcfs("GRCh38_notlifted", notlifted_38, merged_paths["notlifted_38"]))
-
-    # Optional extra cleanup for leftover per-chromosome files only
-    for f in outdir.glob(f"{gwas_outputname}_chr*.vcf.gz"):
-        try:
-            f.unlink()
-        except Exception:
-            pass
-        tbi = Path(str(f) + ".tbi")
-        try:
-            tbi.unlink()
-        except Exception:
-            pass
-
-    log_write("🎯 All merges completed.")
-    log_write(f"results={results}")
-
-    with open(log_file, "w") as f:
-        f.write(log_buffer.getvalue())
-
-    # Return None for any merged outputs that were expected but not created
-    for key, path in list(merged_paths.items()):
-        if path is not None and not path.exists():
-            merged_paths[key] = None
-
-    return merged_paths
+    return results

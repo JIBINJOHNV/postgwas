@@ -682,7 +682,7 @@ def gwas_to_vcf_parallel(
         else:
             safe_print("\n          🎉All chromosomes completed without errors.")
 
-    return per_chr_qc
+    return per_chr_qc,grch_version
 
 
 # ===============================================================
@@ -835,7 +835,7 @@ def run_harmonisation_pipeline(
     # ---------------------------------------------------------
     # STEP 1 — FULL harmonisation + per-chromosome GWAS2VCF
     # ---------------------------------------------------------
-    qc_results = gwas_to_vcf_parallel(
+    qc_results,grch_version = gwas_to_vcf_parallel(
         sumstat_file=sample_column_dict["sumstat_file"],
         sample_column_dict=sample_column_dict,
         output_dir=sample_column_dict["output_folder"],
@@ -894,7 +894,7 @@ def run_harmonisation_pipeline(
     concat_vcfs_by_build(
         output_dir=sample_column_dict["output_folder"],
         gwas_outputname=sample_column_dict["gwas_outputname"],
-        mode="concurrent",
+        grch_version=grch_version
     )
 
     # ---------------------------------------------------------
@@ -1061,5 +1061,6 @@ def run_harmonisation_pipeline(
     print(" ")
     return {
         "GRCh37":f"{outdir}/{sample_column_dict['gwas_outputname']}_GRCh37_merged.vcf.gz",
-        "GRCh38":f"{outdir}/{sample_column_dict['gwas_outputname']}_GRCh37_merged.vcf.gz"
+        "GRCh38":f"{outdir}/{sample_column_dict['gwas_outputname']}_GRCh38_merged.vcf.gz",
+        "gwas2vcf":f"{outdir}/{sample_column_dict['gwas_outputname']}_gwas2vcf_{grch_version}_merged.vcf.gz"
     }

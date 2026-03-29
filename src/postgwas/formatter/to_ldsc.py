@@ -23,109 +23,65 @@ def log_message(log_file: Path, message: str):
 
 # =========================================================
 # STEP 1: DROP / FIX N_CAS / N_CON
-# =========================================================
+# ========================================================
 def drop_if_mostly_empty(input_file: str, log_file: str, threshold=0.8):
-
     input_path = Path(input_file)
     log_path = Path(log_file)
-
     log_message(log_path, f"[STEP] Checking N_CAS / N_CON in: {input_path}")
-
+    # Read the data
     df = pl.read_csv(input_path, separator="\t")
     total_rows = df.height
-
     cols = ["N_CAS", "N_CON"]
-    empty_fraction_map = {}
     present_cols = []
-
-    sample_prev = None  # ✅ NEW
-
+    sample_prev = None 
     # ---------------------------
-    # CHECK EMPTY FRACTION
+    # 🛠️ CONVERT & DROP IMMEDIATELY
     # ---------------------------
     for c in cols:
         if c not in df.columns:
             log_message(log_path, f"[SKIP] {c} not present")
             continue
-
-        present_cols.append(c)
-
+        # 1. Cast to Float: Dots/strings become Nulls
+        df = df.with_columns(pl.col(c).cast(pl.Float64, strict=False))
+        # 2. Check empty fraction
         empty_count = df.select(pl.col(c).is_null().sum()).item()
         empty_fraction = empty_count / total_rows
-
-        empty_fraction_map[c] = empty_fraction
-
-        log_message(
-            log_path,
-            f"[CHECK] {c}: {empty_count}/{total_rows} ({empty_fraction:.2%}) empty"
-        )
-
+        # 3. DROP from df immediately if mostly garbage
+        if empty_fraction >= threshold:
+            df = df.drop(c)
+            log_message(log_path, f"[DROP] {c} is {empty_fraction:.2%} invalid -> removed from dataframe")
+        else:
+            present_cols.append(c)
+            log_message(log_path, f"[KEEP] {c}: {empty_count}/{total_rows} ({empty_fraction:.2%}) empty")
     # ---------------------------
-    # 🧬 SAMPLE PREVALENCE
+    # 🧬 SAMPLE PREVALENCE (Only if BOTH survived)
     # ---------------------------
-    if all(c in df.columns for c in ["N_CAS", "N_CON"]):
+    if len(present_cols) == 2:
         try:
+            # We use median because UKB sample sizes can vary slightly per SNP
             n_cases = df.select(pl.col("N_CAS").median()).item()
             n_controls = df.select(pl.col("N_CON").median()).item()
-
-            if n_cases is not None and n_controls is not None and (n_cases + n_controls) > 0:
+            if n_cases and n_controls and (n_cases + n_controls) > 0:
                 sample_prev = n_cases / (n_cases + n_controls)
-
-                log_message(
-                    log_path,
-                    f"[SPREV] Sample prevalence = {sample_prev:.4f} "
-                    f"(median N_CAS={n_cases}, N_CON={n_controls})"
-                )
-            else:
-                log_message(log_path, "[SPREV] Unable to compute (invalid values)")
-
+                log_message(log_path, f"[SPREV] Computed prevalence = {sample_prev:.4f}")
         except Exception as e:
-            log_message(log_path, f"[SPREV] Error computing prevalence: {e}")
-
-    else:
-        log_message(log_path, "[SPREV] Not computed (missing N_CAS or N_CON)")
-
+            log_message(log_path, f"[SPREV] Error: {e}")
     # ---------------------------
-    # DECISION LOGIC
+    # ⚖️ SIMPLIFIED RENAMING LOGIC
     # ---------------------------
-    cols_to_drop = []
-
-    if len(present_cols) == 2:
-        if all(empty_fraction_map[c] >= threshold for c in present_cols):
-            log_message(log_path, "[DROP] Both N_CAS & N_CON mostly empty → dropping both")
-            cols_to_drop = present_cols
-        else:
-            log_message(log_path, "[KEEP] Both N_CAS & N_CON retained")
-
-    elif len(present_cols) == 1:
+    # If only one column survived (like N_CON), rename it to total N
+    if len(present_cols) == 1:
         c = present_cols[0]
-
-        if c == "N_CON":
-            log_message(log_path, "[FIX] Only N_CON → renaming to N")
-            df = df.rename({"N_CON": "N"})
-
-        elif c == "N_CAS":
-            log_message(log_path, "[FIX] Only N_CAS → renaming to N")
-            df = df.rename({"N_CAS": "N"})
-
-    else:
-        log_message(log_path, "[INFO] No N columns found")
-
-    # ---------------------------
-    # APPLY DROP
-    # ---------------------------
-    if cols_to_drop:
-        df = df.drop(cols_to_drop)
-
+        log_message(log_path, f"[FIX] Only {c} is valid. Renaming to 'N'")
+        df = df.rename({c: "N"})
+    elif len(present_cols) == 0:
+        log_message(log_path, "[WARNING] No valid N columns remained after filtering.")
     # ---------------------------
     # SAVE
     # ---------------------------
     df.write_csv(input_path, separator="\t")
     log_message(log_path, "[DONE] N column check complete")
-
-    # ✅ RETURN BOTH
     return str(input_path), sample_prev
-
 
 # =========================================================
 # STEP 2: VCF → LDSC
