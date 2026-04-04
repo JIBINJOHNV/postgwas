@@ -44,7 +44,11 @@ def clean_intermediate_files(output_dir: str, gwas_outputname):
         print(f"⚠️ Skipped merging summary files: {e}")
     
     try:
-        os.system(f"cat {outdir}/*_vcf_input.tsv |gzip -c > {qc_dir}/{gwas_outputname}_gwas2vcf_input.tsv.gz")
+        threads = os.cpu_count() or 4
+        os.system(
+            f"pigz -p {threads} -c {outdir}/*_vcf_input.tsv > "
+            f"{qc_dir}/{gwas_outputname}_gwas2vcf_input.tsv.gz"
+        )
         os.system(f"rm {outdir}/*_vcf_input.tsv")
     except Exception as e:
         print(f"⚠️ Skipped merging gwas2vcf files: {e}")

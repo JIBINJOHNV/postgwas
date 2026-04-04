@@ -1,9 +1,18 @@
 import polars as pl
 import math
 from typing import Dict, Tuple, Any,Union
-import io
+import io,sys
 from pathlib import Path
 
+buffer = io.StringIO()
+
+
+
+def log_print(*args):
+    msg = " ".join(str(x) for x in args)
+    buffer.write(msg + "\n")
+    sys.stdout.write(msg + "\n")
+    sys.stdout.flush()
 
 def detect_pval_type(
     df: pl.DataFrame,
@@ -94,9 +103,9 @@ def convert_pval_to_mlogp(
         pl.col(output_col).mean().alias("mean_LP"),
         pl.col(output_col).median().alias("median_LP"),
     ).to_dicts()[0]
-    print(f"✅ Converted raw p-values to -log10(p) and saved to column: '{output_col}'")
-    print(
-        f"LP summary: min={stats['min_LP']:.3f}, max={stats['max_LP']:.3f}, "
+    log_print(f"\t\t\t\t✅ Converted raw p-values to -log10(p) and saved to column: '{output_col}'")
+    log_print(
+        f"\t\t\t\tLP summary: min={stats['min_LP']:.3f}, max={stats['max_LP']:.3f}, "
         f"mean={stats['mean_LP']:.3f}, median={stats['median_LP']:.3f}"
     )
     sample_column_dict["pval_col"] = output_col
@@ -157,16 +166,14 @@ def convert_mlogp_to_pval(
         pl.col(output_col).mean().alias("mean_PVAL"),
         pl.col(output_col).median().alias("median_PVAL"),
     ).to_dicts()[0]
-    print(f"\t\t\t\t✅ Converted -log10(p) values to raw p-value and saved to column: '{output_col}'")
-    print(
+    log_print(f"\t\t\t\t✅ Converted -log10(p) values to raw p-value and saved to column: '{output_col}'")
+    log_print(
         f"\t\t\t\tPVAL summary: min={stats['min_PVAL']:.3e}, max={stats['max_PVAL']:.3e}, "
-        f"\t\t\t\tmean={stats['mean_PVAL']:.3e}, median={stats['median_PVAL']:.3e}"
+        f"mean={stats['mean_PVAL']:.3e}, median={stats['median_PVAL']:.3e}"
     )
-    # 5️⃣ Update column dictionary
+    # 5️⃣ Update column dictionary 
     sample_column_dict["pval_col"] = output_col
     return df, stats, sample_column_dict
-
-
 
 
 
@@ -194,17 +201,10 @@ def detect_and_convert_pval(
     log_dir.mkdir(parents=True, exist_ok=True)
 
     logfile = log_dir / f"{gwas_outputname}_chr{chromosome}_detect_pval.log"
-
-    buffer = io.StringIO()
-    def log_print(*args):
-        """Write ONLY to log buffer — never to screen."""
-        msg = " ".join(str(x) for x in args)
-        buffer.write(msg + "\n")
-
     # -------------------------------------------------------
     # Begin logic (your code preserved)
     # -------------------------------------------------------
-    log_print("\n🧩 Starting P-value detection + harmonization…")
+    log_print("\t\t\t\t🧩 Starting P-value detection + harmonization…")
 
     # 1️⃣ Convert to float
     pval_col = sample_column_dict["pval_col"]
@@ -214,13 +214,11 @@ def detect_and_convert_pval(
     detection_info = detect_pval_type(df, sample_column_dict, proportion_threshold)
     qc_info = detection_info.copy()
 
-    print(f"                ✅ P value Detected as {detection_info['detected_type']} for chromosome {chromosome}")
     log_print(f"                ✅ P value Detected as {detection_info['detected_type']} for chromosome {chromosome}")
     # --- Case: -log10(p) detected ---
     if detection_info["detected_type"] == "mlogp":
-        log_print("Converting -log10(p) P-values to raw P-values…")
-        log_print(f"Variants has P vallue over 1.005 is : {detection_info['over_1.2_fraction']}")
-        print(f"\t\t\t\tVariants has P vallue over 1.005 is : {detection_info['over_1.2_fraction']}")
+        log_print(f"\t\t\t\tConverting -log10(p) P-values to raw P-values… for chromosome {chromosome}")
+        log_print(f"\t\t\t\tVariants has P vallue over 1.005 is : {detection_info['over_1.2_fraction']* 100:.3f}% for chromosome {chromosome}")
         df, stats, sample_column_dict = convert_mlogp_to_pval(
             df=df,
             sample_column_dict=sample_column_dict,
@@ -234,9 +232,8 @@ def detect_and_convert_pval(
     else:
         df = df.with_columns(pl.col(sample_column_dict["pval_col"]).alias(output_col))
         qc_info["conversion"] = "none_needed"
-        log_print(f"P-values already raw; stored in '{output_col}'.")
-        log_print(f"Variants has P vallue over 1.005 is : {detection_info['over_1.2_fraction']}")
-        print(f"\t\t\t\tVariants has P vallue over 1.005 is : {detection_info['over_1.2_fraction']}")
+        log_print(f"\t\t\t\tP-values already raw; stored in '{output_col}' for chromosome {chromosome}")
+        log_print(f"\t\t\t\tVariants has P vallue over 1.005 is : {detection_info['over_1.2_fraction']} for chromosome {chromosome}")
     # ------------------------------------------------------------
     #  PRESERVED — DO NOT REMOVE ANY COMMENTS
     # ------------------------------------------------------------
@@ -267,8 +264,8 @@ def detect_and_convert_pval(
 
     if n_clipped:
         log_print(
-            f"Clipped {n_clipped:,}/{n_before:,} {output_col} values to "
-            f"{max_allowed_lp:.1f}  (p ≤ 10⁻{max_allowed_lp:.0f})"
+            f"\t\t\t\tClipped {n_clipped:,}/{n_before:,} {output_col} values to "
+            f"{max_allowed_lp:.1f}  (p ≤ 10⁻{max_allowed_lp:.0f}) for chromosome {chromosome}"
         )
 
     qc_info["max_lp_clipped"] = max_allowed_lp
@@ -276,7 +273,7 @@ def detect_and_convert_pval(
 
     sample_column_dict["pval_col"] = output_col
 
-    log_print("P-value harmonisation complete.\n")
+    log_print(f"\t\t\t\tP-value harmonisation complete for chromosome {chromosome}\n")
 
     # ------------------------------------------------------------------
     # Summary statistics

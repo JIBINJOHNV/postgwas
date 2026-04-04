@@ -8,6 +8,8 @@ from pathlib import Path
 import yaml
 from importlib import resources
 from postgwas.harmonisation.chr_pos_process import fix_chr_pos_column
+import os
+import json
 
 # ----------------------------------------------------------------------
 # 1. Helper: correct opener
@@ -441,12 +443,12 @@ def read_sumstats(sumstat_file: str, output_dir: str, sample_column_dict: dict) 
         print(f"⚠️ Warning: Mismatch between line-count ({shell_cnt}) and Polars rows ({df.height}).")
     
     indent = "\t" * 3
-    print(f"{indent}[PREVIEW] First 5 rows of sumstats {sumstat_file}:")
+    print(f"{indent} First 5 rows of sumstats {sumstat_file}:")
     preview_str = str(df.head())
     preview_str = "\n".join(indent + line for line in preview_str.splitlines())
     print(preview_str)
     print(f"{indent}")
-    print(f"{indent}[PREVIEW] Columns of sumstats {sumstat_file}:")
+    print(f"{indent} Columns of sumstats {sumstat_file}:")
     cols = ", ".join(df.columns)
     print(f"{indent}[COLUMNS] ({len(df.columns)} total):\n{indent}{cols}") 
     return df, shell_cnt, df.height, sample_column_dict
@@ -666,9 +668,6 @@ def find_resource_file_path(input_file, resource_folder, grch_version, chromosom
     print(f"   Tried constructed path: {input_file}_chr{chromosome}.tsv.gz")
     return "NA"
 
-import os
-import json
-import pandas as pd
 
 
 def read_config(csv_path):

@@ -962,21 +962,64 @@ def get_common_sumstat_filter_parser(add_help=False):
             "external reference AF (e.g., EUR/EAS/AFR AF tags).\n"
             "[bold green]Default:[/bold green] [cyan]0.2[/cyan]"
         )
-    )
-
+    ) 
+    
     group.add_argument(
         "--info-cutoff",
         type=float,
         metavar=" ",
         default=0.3,
         help=(
-            "Minimum INFO score required to retain a variant "
-            "(imputation quality threshold).\n"
-            "Typical values: [cyan]0.6[/cyan], [cyan]0.8[/cyan]\n"
-            "[bold green]Default:[/bold green] [cyan]0.3[/cyan]"
+            "Primary minimum INFO (imputation quality) threshold.\n"
+            "Variants with INFO < cutoff will be removed.\n\n"
+            "Priority:\n"
+            "  • Overrides --info-min if both are provided\n"
+            "  • Can be combined with --info-max\n\n"
+            "Typical values: 0.6, 0.8\n"
+            "Default: 0.3"
         )
     )
 
+    group.add_argument(
+        "--info-min",
+        type=float,
+        metavar=" ",
+        default=None,
+        help=(
+            "Minimum INFO threshold (used only if --info-cutoff is NOT provided).\n"
+            "Variants with INFO < info-min will be removed.\n\n"
+            "Ignored when --info-cutoff is set.\n"
+            "Default: None"
+        )
+    )
+
+    group.add_argument(
+        "--info-max",
+        type=float,
+        metavar=" ",
+        default=None,
+        help=(
+            "Maximum INFO threshold.\n"
+            "Variants with INFO > info-max will be removed.\n\n"
+            "Can be used together with --info-cutoff or --info-min.\n"
+            "Default: None"
+        )
+    )
+
+    group.add_argument(
+        "--info-missing",
+        type=str,
+        metavar=" ",
+        default="remove",
+        choices=["keep", "remove"],
+        help=(
+            "How to handle variants with missing INFO values.\n\n"
+            "Options:\n"
+            "  • remove → exclude variants with missing INFO (recommended)\n"
+            "  • keep   → retain variants even if INFO is missing\n\n"
+            "Default: remove"
+        )
+    )
 
 
     # =====================================================

@@ -120,12 +120,16 @@ def run_bcftools_annot(
     threads: int = 5,
 ) -> str:
 
+    from pathlib import Path
+    import shutil
+    import tempfile
+
     outdir = Path(output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
 
     log_dir = outdir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"{gwas_outputname}_chr{chromosome}.log"
+    log_file = log_dir / f"{gwas_outputname}_chr{chromosome}_bcftools_annot.log"
 
     def log(msg):
         with open(log_file, "a") as lf:
@@ -138,9 +142,13 @@ def run_bcftools_annot(
 
     original_vcf = outdir / f"{gwas_outputname}_chr{chromosome}_{grch_version}_ORIGINAL.vcf.gz"
 
+    # =======================================================
+    # SAFE COPY (VCF + INDEX)
+    # =======================================================
     if not original_vcf.exists():
         shutil.copy2(input_vcf, original_vcf)
-        shutil.copy2(f"{input_vcf}.tbi", f"{original_vcf}.tbi")
+        if Path(f"{input_vcf}.tbi").exists():
+            shutil.copy2(f"{input_vcf}.tbi", f"{original_vcf}.tbi")
 
     norm_vcf = outdir / f"{gwas_outputname}_chr{chromosome}_{grch_version}_NORM.vcf.gz"
     id_vcf   = outdir / f"{gwas_outputname}_chr{chromosome}_{grch_version}_ID.vcf.gz"
@@ -152,39 +160,58 @@ def run_bcftools_annot(
     reject_vcf = outdir / f"{gwas_outputname}_chr{chromosome}_{target_build}_CSQ_notlifted.vcf.gz"
 
     counts = {}
+    sort_tmp_dir = Path(output_dir) / f"temp_chr{chromosome}"
+    sort_tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    # =======================================================
+    # ORIGINAL COUNT
+    # =======================================================
     counts["ORIGINAL"] = get_vcf_variant_count(str(original_vcf))
     log_variant_stats(log, "ORIGINAL", counts["ORIGINAL"], None, counts["ORIGINAL"], chromosome)
 
-    # STEP 0
+    # =======================================================
+    # STEP 0: NORMALIZATION
+    # =======================================================
     _run_bcftools_step([
         "bash", "-c",
-        f"bcftools norm -m-any -d exact \"{input_vcf}\" | bgzip -c > \"{norm_vcf}\" && tabix -f -p vcf \"{norm_vcf}\""
+        f"""
+        set -euo pipefail
+        bcftools norm --threads {threads} -Ou -m-any -d exact --fasta-ref "{genome_fasta_file}" "{input_vcf}" |
+        bcftools view --threads {threads} -Oz -o "{norm_vcf}" &&
+        tabix -f -p vcf "{norm_vcf}"
+        """
     ], log_file, "STEP0_NORM", chromosome)
 
     counts["NORM"] = get_vcf_variant_count(str(norm_vcf))
     log_variant_stats(log, "NORM", counts["NORM"], counts["ORIGINAL"], counts["ORIGINAL"], chromosome)
 
-    # STEP 1
+    # =======================================================
+    # STEP 1: ID ANNOTATION
+    # =======================================================
     _run_bcftools_step([
         "bash", "-c",
         f"""
+        set -euo pipefail
         bcftools annotate --threads {threads} \
             --annotations "{default_dbsnp_file}" \
             --columns CHROM,POS,REF,ALT,ID "{norm_vcf}" |
-        bcftools norm -m-any -d exact |
-        bcftools annotate --set-id +'%CHROM\\_%POS\\_%REF\\_%ALT' |
-        bgzip -c > "{id_vcf}" && tabix -f -p vcf "{id_vcf}"
+        bcftools norm --threads {threads} -Ou -m-any -d exact --fasta-ref "{genome_fasta_file}" |
+        bcftools annotate --threads {threads} --set-id +'%CHROM\\_%POS\\_%REF\\_%ALT' |
+        bcftools view --threads {threads} -Oz -o "{id_vcf}" &&
+        tabix -f -p vcf "{id_vcf}"
         """
     ], log_file, "STEP1_ID", chromosome)
 
     counts["ID"] = get_vcf_variant_count(str(id_vcf))
     log_variant_stats(log, "ID", counts["ID"], counts["NORM"], counts["ORIGINAL"], chromosome)
 
-    # STEP 2
+    # =======================================================
+    # STEP 2: EAF ANNOTATION
+    # =======================================================
     _run_bcftools_step([
         "bcftools", "annotate",
         "--threads", str(threads),
-        "--annotations", external_eaf_file,
+        "--annotations", str(external_eaf_file),
         "--columns", "CHROM,POS,REF,ALT,INFO/AFR,INFO/EAS,INFO/EUR,INFO/SAS",
         "-Oz", "-o", str(af_vcf), "--write-index=tbi", str(id_vcf)
     ], log_file, "STEP2_AF", chromosome)
@@ -192,11 +219,13 @@ def run_bcftools_annot(
     counts["EAF"] = get_vcf_variant_count(str(af_vcf))
     log_variant_stats(log, "EAF", counts["EAF"], counts["ID"], counts["ORIGINAL"], chromosome)
 
-    # STEP 3
+    # =======================================================
+    # STEP 3: CSQ
+    # =======================================================
     _run_bcftools_step([
         "bcftools", "csq",
-        "--fasta-ref", genome_fasta_file,
-        "--gff-annot", gff_file,
+        "--fasta-ref", str(genome_fasta_file),
+        "--gff-annot", str(gff_file),
         "--threads", str(threads),
         "--unify-chr-names", "-,chr,-",
         "-Oz", "-o", str(csq_vcf),
@@ -207,29 +236,60 @@ def run_bcftools_annot(
     counts["CSQ"] = get_vcf_variant_count(str(csq_vcf))
     log_variant_stats(log, "CSQ", counts["CSQ"], counts["EAF"], counts["ORIGINAL"], chromosome)
 
-    # STEP 4: Liftover
+    # =======================================================
+    # STEP 4: LIFTOVER
+    # =======================================================
     _run_bcftools_step([
         "bash", "-c",
         f"""
-            bcftools +liftover "{csq_vcf}" --no-version -Ou -- \
-                --src-fasta-ref "{genome_fasta_file}" \
-                --fasta-ref "{target_genome_fasta_file}" \
-                --chain "{chain_file}" \
-                --reject "{reject_vcf}" \
-                --reject-type z |
-            bcftools view -e 'INFO/SWAP==1 || INFO/SWAP==-1' |
-            bcftools norm -m-any -d exact |
-            bcftools sort -Oz -o "{target_vcf}" --write-index=tbi
+        set -euo pipefail
 
-            # 🔥 CRITICAL FIX: index reject file if exists
-            if [ -f "{reject_vcf}" ]; then
-                tabix -f -p vcf "{reject_vcf}" || true
-            fi
+        bcftools +liftover "{csq_vcf}" --no-version -Ou -- \
+            --src-fasta-ref "{genome_fasta_file}" \
+            --fasta-ref "{target_genome_fasta_file}" \
+            --chain "{chain_file}" \
+            --reject "{reject_vcf}" \
+            --reject-type z |
+
+        bcftools view --threads {threads} -e "INFO/SWAP==1 || INFO/SWAP==-1" |
+
+        bcftools norm --threads {threads} -Ou -m-any -d exact --fasta-ref "{target_genome_fasta_file}" |
+
+        bcftools sort -m {threads * 512}M --temp-dir "{sort_tmp_dir}" -Oz -o "{target_vcf}" --write-index=tbi
+
+        # SAFE INDEX REJECT
+        if [ -f "{reject_vcf}" ] && [ -s "{reject_vcf}" ]; then
+            tabix -f -p vcf "{reject_vcf}" || true
+        fi
         """
     ], log_file, "STEP4_LIFTOVER", chromosome)
 
-    return str(target_vcf)
+    # =======================================================
+    # POST-LIFTOVER QC
+    # =======================================================
+    counts["LIFTED"] = get_vcf_variant_count(str(target_vcf))
+    counts["REJECTED"] = (
+        get_vcf_variant_count(str(reject_vcf))
+        if Path(reject_vcf).exists()
+        else 0
+    )
 
+    log_variant_stats(log, "LIFTED", counts["LIFTED"], counts["CSQ"], counts["ORIGINAL"], chromosome)
+
+    if counts["REJECTED"]:
+        log(f"[chr{chromosome}] 📉 REJECTED (not lifted): {counts['REJECTED']:,}")
+
+    # 🚨 LIFTOVER FAILURE WARNING
+    if counts["CSQ"] and counts["REJECTED"] is not None:
+        failure_rate = counts["REJECTED"] / counts["CSQ"]
+        log(f"[chr{chromosome}] 📊 Liftover failure rate: {failure_rate*100:.2f}%")
+
+        if failure_rate > 0.30:
+            log(f"[chr{chromosome}] 🚨 WARNING: >30% variants failed liftover")
+        elif failure_rate > 0.10:
+            log(f"[chr{chromosome}] ⚠️ Notice: >10% variants failed liftover")
+    shutil.rmtree(sort_tmp_dir, ignore_errors=True)
+    return str(target_vcf)
 
 # ============================================================
 # 3. CONCAT FUNCTION
@@ -253,10 +313,10 @@ def concat_vcfs_by_build(
     max_workers = min(3, total_cpus)
     threads_per_job = max(1, total_cpus // max_workers)
 
-    print("\t\t\t\t Started CONCATENATING CHROMOSOMAL VCF FILES")
-    print(f"\t\t\t\t🧠 CPU detected: {total_cpus}")
-    print(f"\t\t\t\t⚙️ Parallel jobs: {max_workers}")
-    print(f"\t\t\t\t🔧 Threads per job: {threads_per_job}")
+    # print("\t\t\t\t Started CONCATENATING CHROMOSOMAL VCF FILES")
+    # print(f"\t\t\t\t🧠 CPU detected: {total_cpus}")
+    # print(f"\t\t\t\t⚙️ Parallel jobs: {max_workers}")
+    # print(f"\t\t\t\t🔧 Threads per job: {threads_per_job}")
 
     # -------------------------------------------------------
     # CHR SORT
@@ -347,7 +407,7 @@ def concat_vcfs_by_build(
     )
     notlifted_files = [f for f in notlifted_files if f]
 
-    print(f"🔍 Valid notlifted files: {len(notlifted_files)}")
+    #print(f"🔍 Valid notlifted files: {len(notlifted_files)}")
 
     # -------------------------------------------------------
     # RAW FILES
@@ -372,7 +432,7 @@ def concat_vcfs_by_build(
             print(f"⚠️ [{tag}] No valid files — skipping")
             return None
 
-        print(f"\t\t\t\t🔧 [{tag}] Merging {len(vcf_list)} files")
+        #print(f"\t\t\t\t🔧 [{tag}] Merging {len(vcf_list)} files")
 
         try:
             subprocess.run([
@@ -385,7 +445,7 @@ def concat_vcfs_by_build(
                 *map(str, vcf_list)
             ], check=True)
 
-            print(f"✅ [{tag}] → {out}")
+            #print(f"✅ [{tag}] → {out}")
             return str(out)
 
         except subprocess.CalledProcessError:

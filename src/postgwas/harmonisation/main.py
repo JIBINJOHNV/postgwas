@@ -263,7 +263,11 @@ def process_one_chromosome(
     """
     sample_id = sample_column_dict["gwas_outputname"]
     output_dir_path = Path(output_dir)
+    invalide_info_path=output_dir_path / "invalid_info"
+    invalide_info_path.mkdir(parents=True, exist_ok=True)
+    output_dir_path.mkdir(parents=True, exist_ok=True)
     log_dir = output_dir_path / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
     logger = _get_chr_logger(sample_id=sample_id, chromosome=chromosome, log_dir=log_dir)
 
     qc_dict: Dict[str, Any] = {}
@@ -372,6 +376,9 @@ def process_one_chromosome(
             info_column=res["user_info_column"],
             default_info_file=res["default_info_file"],
             default_info_column=res["default_info_column"],
+            output_folder=str(invalide_info_path),
+            output_prefix=sample_column_dict["gwas_outputname"],
+            log_dir=str(log_dir),
         )
 
         logger.info("INFO score harmonisation completed.")
@@ -504,7 +511,7 @@ def gwas_to_vcf_parallel(
     better logging/progress reporting.
     """
     safe_print(f"          🔹 Starting harmonisation + GWAS-to-VCF pipeline with max_workers={max_workers} ")
-    safe_print(f"                   for {sumstat_file}")
+    safe_print(f"            for {sumstat_file}")
     
     # ------------------------------
     # Create output path
@@ -891,7 +898,7 @@ def run_harmonisation_pipeline(
     # STEP 2 — Merge per-chromosome VCFs
     # ---------------------------------------------------------
     #safe_print("\n📦 Concatenating per-chromosome VCFs...")
-    concat_vcfs_by_build(
+    concated_vcf_files = concat_vcfs_by_build(
         output_dir=sample_column_dict["output_folder"],
         gwas_outputname=sample_column_dict["gwas_outputname"],
         grch_version=grch_version
@@ -953,11 +960,13 @@ def run_harmonisation_pipeline(
     qc_passed_vcf = filter_gwas_vcf_bcftools(
         vcf_path=raw_vcf_path,
         output_folder=str(outdir),
-        output_prefix=f"{sample_column_dict['gwas_outputname']}",
+        output_prefix=f"{sample_column_dict['gwas_outputname']}", 
         pval_cutoff=None,
         maf_cutoff=0.01,
         allelefreq_diff_cutoff=0.2,
         info_cutoff=0.7,
+        info_max=1.05,
+        info_missing="remove",
         external_af_name=comparison_cols,
         include_indels=False,
         exclude_palindromic=True,
@@ -997,38 +1006,14 @@ def run_harmonisation_pipeline(
         / f"{sample_column_dict['gwas_outputname']}_final_qc_summary.csv"
     )
 
-    postgwas_qc_df.to_csv(
-        qc_outdir / f"{sample_column_dict['gwas_outputname']}_inputfile_QC_summary.csv",
-        index=None,
-    )
 
     final_qc_df = pd.merge(
         raw_vcf_qc_df, qc_passed_vcf_df, on="index", how="outer"
-    )
+    )  
 
-    # Ensure summary columns exist
-    if "total_variant_infile" not in final_qc_df.columns:
-        final_qc_df["total_variant_infile"] = pd.NA
-    if "total_variant_read" not in final_qc_df.columns:
-        final_qc_df["total_variant_read"] = pd.NA
-
-    # Create an empty row with correct length
-    values = [pd.NA] * final_qc_df.shape[1]
-    values[final_qc_df.columns.get_loc("index")] = "variant_count"
-
-    # Fill summary values from postgwas_qc_df
-    try:
-        values[final_qc_df.columns.get_loc("total_variant_infile")] = postgwas_qc_df.loc[
-            0, "total_variant_infile"
-        ]
-        values[final_qc_df.columns.get_loc("total_variant_read")] = postgwas_qc_df.loc[
-            0, "total_variant_read"
-        ]
-    except Exception:
-        # If columns missing, leave as NA
-        pass
-
-    final_qc_df.loc[len(final_qc_df)] = values
+    final_qc_df.loc[final_qc_df["index"] == "num_records", "total_variant_infile"] = variant_qc_summary["total_variant_infile"]
+    final_qc_df.loc[final_qc_df["index"] == "num_records", "total_variant_read"] = variant_qc_summary["total_variant_read"]
+    final_qc_df.loc[final_qc_df["index"] == "num_records", "total_variant_input_to_gwas2vcf"] = variant_qc_summary["total_variant_in_vcf_input"]
     final_qc_df.to_csv(qc_file, sep=",", index=None)
 
     # ---------------------------------------------------------
