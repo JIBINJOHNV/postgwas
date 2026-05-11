@@ -15,8 +15,10 @@ def add_or_calculate_info(
     log_dir: str = ".",
     output_folder: str = ".",
     output_prefix: str = "gwas",
-    enable_stdout=True,
+    enable_stdout=True,  # kept but ignored for controlled logging
 ) -> Tuple[pl.DataFrame, Dict, dict]:
+
+    import io
 
     # ============================================================
     # SETUP
@@ -28,28 +30,22 @@ def add_or_calculate_info(
     log_dir.mkdir(parents=True, exist_ok=True)
 
     log_file = log_dir / f"{output_prefix}_chr{chromosome}_info.log"
-    log_fh = open(log_file, "a")
 
-    # ============================================================
-    # LOGGER (FIXED)
-    # ============================================================
+    # ------------------------------------------------------------
+    # BUFFERED LOGGER
+    # ------------------------------------------------------------
+    log_buffer = io.StringIO()
     PREFIX = " " * 16
 
     def log_print(*args, prefix=True):
         msg = " ".join(map(str, args))
         if prefix:
             msg = PREFIX + msg
-
-        # 🔥 CONTROL STDOUT (prevents mixing)
-        if enable_stdout:
-            print(msg, flush=True)
-
-        log_fh.write(msg + "\n")
-        log_fh.flush()
+        log_buffer.write(msg + "\n")  # ✅ buffer only (no print)
 
     try:
-        log_print(" " * 60)
-        log_print(f"🧩 INFO harmonisation started (Chr {chromosome})", prefix=False)
+        log_print(" " * 60, prefix=False)
+        log_print(f"📊 [Chr {chromosome}] Starting INFO harmonisation...", prefix=False) 
 
         qc_info = {"initial_variants": df.height}
 
@@ -63,16 +59,21 @@ def add_or_calculate_info(
         # NORMALIZE INPUT
         # ============================================================
         df = df.with_columns([
+            # Chr as String (cleaned)
+            pl.col(chr_col).cast(pl.String).str.replace("^chr", "", literal=False).str.strip_chars(),
+            # Pos as Int64 (strip whitespace first if it's currently a string)
+            pl.col(pos_col).cast(pl.String).str.strip_chars().cast(pl.Int64, strict=False),
+            # Alleles as String
             pl.col(ea_col).cast(pl.String).str.to_uppercase().str.strip_chars(),
             pl.col(oa_col).cast(pl.String).str.to_uppercase().str.strip_chars()
         ])
 
         # ============================================================
         # STEP 1: INTERNAL INFO
-        # ============================================================ 
+        # ============================================================
         if imp_info_col != "NA" and imp_info_col in df.columns:
 
-            log_print(f"    🔍 Using internal INFO column: {imp_info_col} ; for chr{chromosome}")
+            log_print(f"🔍 Using internal INFO column: {imp_info_col} ; for chr{chromosome}")
 
             df = df.with_columns(
                 pl.col(imp_info_col).cast(pl.Float64, strict=False)
@@ -98,18 +99,26 @@ def add_or_calculate_info(
 
             log_print(f"📂 Using INFO file: {info_file_to_use} ; for chr{chromosome}")
 
+            # ============================================================
+            # STEP 2: LOAD INFO (External File)
+            # ============================================================
             info_df = (
                 pl.read_csv(
                     info_file_to_use,
                     separator="\t",
-                    null_values=["NA", ".", "-"]
+                    null_values=["NA", ".", "-"],
+                    infer_schema_length=10000 # Help Polars guess types correctly
                 )
                 .select(["CHROM", "POS", "ALT", "REF", info_col_to_use])
                 .with_columns([
-                    pl.col("CHROM").cast(pl.String).str.replace("^chr", "", literal=False),
-                    pl.col("POS").cast(pl.Int64),
+                    # CHROM as String
+                    pl.col("CHROM").cast(pl.String).str.replace("^chr", "", literal=False).str.strip_chars(),
+                    # POS as Int64
+                    pl.col("POS").cast(pl.String).str.strip_chars().cast(pl.Int64, strict=False),
+                    # Alleles as String
                     pl.col("ALT").cast(pl.String).str.to_uppercase().str.strip_chars(),
                     pl.col("REF").cast(pl.String).str.to_uppercase().str.strip_chars(),
+                    # Info Score as Float
                     pl.col(info_col_to_use).cast(pl.Float64, strict=False)
                 ])
                 .rename({
@@ -136,12 +145,21 @@ def add_or_calculate_info(
                 how="left"
             )
 
-            df = df_direct.with_columns(
+            flip_col = f"{info_col_to_use}_flip"
+            df_flip = df_flip.rename({info_col_to_use: flip_col})
+
+            df_merged = df_direct.join(
+                df_flip.select([chr_col, pos_col, ea_col, oa_col, flip_col]),
+                on=[chr_col, pos_col, ea_col, oa_col],
+                how="left"
+            )
+
+            df = df_merged.with_columns(
                 pl.when(pl.col(info_col_to_use).is_null())
-                .then(df_flip[info_col_to_use])
+                .then(pl.col(flip_col))
                 .otherwise(pl.col(info_col_to_use))
                 .alias(info_col_to_use)
-            )
+            ).drop(flip_col)
 
             info_col = info_col_to_use
             sample_column_dict["imp_info_col"] = info_col
@@ -186,7 +204,7 @@ def add_or_calculate_info(
             .alias("INFO_QC_REASON")
         ]).filter(pl.col("INFO_QC_REASON").is_not_null())
 
-        invalid_path = output_folder / f"{output_prefix}_chr{chromosome}_invalid_info.tsv.gz"
+        invalid_path = output_folder / f"{output_prefix}_chr{chromosome}_invalid_info.tsv"
 
         # ============================================================
         # LOG SUMMARY
@@ -203,17 +221,40 @@ def add_or_calculate_info(
         log_print(f"Good INFO (0.3,1]     : {good_info:,}")
         log_print(f"Range                 : {stats['min']} → {stats['max']}")
 
+        qc_info["total_variant_infile"] = total
+        qc_info["missing_info"] = missing
+        qc_info["lt_zero"] = lt_zero
+        qc_info["gt_one"] = gt_one
+        qc_info["gt_1_05"] = gt_1_05
+        qc_info["invalid"] = invalid
+        qc_info["low_info"] = low_info
+        qc_info["good_info"] = good_info
+        qc_info["min_info"] = stats["min"]
+        qc_info["max_info"] = stats["max"]
+        qc_info["mean_info"] = stats["mean"]
+        qc_info["median_info"] = stats["median"]
+
         if invalid_df.height > 0:
             invalid_df.write_csv(invalid_path, separator="\t")
-            log_print(f"⚠️ Variants with invalid INFO saved → ")
-            log_print(f"{invalid_path} {invalid_df.height:,})")
+            log_print(f"⚠️ Invalid INFO saved → {invalid_path}.gz ({invalid_df.height:,})")
+            os.system(f"gzip --force  {invalid_path} &")
         else:
             log_print("✅ No invalid INFO variants found")
 
         log_print("=" * 60)
         log_print("")
 
+    except Exception as e:
+        log_print(f"❌ ERROR: {str(e)}")
+        raise
+
     finally:
-        log_fh.close()
+        # ============================================================
+        # ALWAYS write + print logs
+        # ============================================================
+        with open(log_file, "w") as f:
+            f.write(log_buffer.getvalue())
+
+        print(log_buffer.getvalue(), flush=True)
 
     return df, qc_info, sample_column_dict

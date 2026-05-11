@@ -40,7 +40,7 @@ def harmonize_sample_sizes(
     # -------------------------------------------------------
     qc_info = {"initial_variants": df.height}
 
-    log_print("\n🧩 Starting sample size harmonization...")
+    log_print(f"\n📊 [Chr {chromosome}] Starting sample size harmonization...")
 
     # Extract mapping
     ncontrol_col = sample_column_dict.get("ncontrol_col", "NA")

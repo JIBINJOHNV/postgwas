@@ -45,11 +45,18 @@ def clean_intermediate_files(output_dir: str, gwas_outputname):
     
     try:
         threads = os.cpu_count() or 4
-        os.system(
-            f"pigz -p {threads} -c {outdir}/*_vcf_input.tsv > "
-            f"{qc_dir}/{gwas_outputname}_gwas2vcf_input.tsv.gz"
-        )
-        os.system(f"rm {outdir}/*_vcf_input.tsv")
+        # 1. Create the specific output directory 
+        target_dir = f"{qc_dir}/{gwas_outputname}_gwas2vcf_input"
+        os.makedirs(target_dir, exist_ok=True)
+        # 2. Move files into the new directory
+        os.system(f"mv {outdir}/*_vcf_input.tsv {target_dir}/")
+        # 3. Compress files individually inside the new folder
+        os.system(f"pigz -p {threads} {target_dir}/*_vcf_input.tsv")
+        # os.system(
+        #     f"pigz -p {threads} -c {outdir}/*_vcf_input.tsv > "
+        #     f"{qc_dir}/{gwas_outputname}_gwas2vcf_input.tsv.gz"
+        # )
+        # os.system(f"rm {outdir}/*_vcf_input.tsv")
     except Exception as e:
         print(f"⚠️ Skipped merging gwas2vcf files: {e}")
     

@@ -1,5 +1,6 @@
 import os
 import gzip
+import bz2
 import argparse
 import polars as pl
 from pathlib import Path
@@ -156,6 +157,7 @@ NON-EFFECT-ALLELE	oa_col
 NON.EFFECT.ALLELE	oa_col
 NONEA	oa_col
 NONEFFECT_ALLELE	oa_col
+neffect_allele	oa_col
 NONEFFECTALLELE	oa_col
 OTHER ALLELE	oa_col
 OTHER_ALLELE	oa_col
@@ -278,6 +280,7 @@ LOG10_P	pval_col
 LOG10P	pval_col
 MLOG10P	pval_col
 MTAG_PVAL	pval_col
+p_wald	pval_col
 P	pval_col
 P_BOLT_LMM	pval_col
 P_DGC	pval_col
@@ -301,6 +304,7 @@ Z-SCORE	imp_z_col
 ZSCORE	imp_z_col
 Z_Estimate	imp_z_col
 CONTROLS_N	ncontrol_col
+n	ncontrol_col
 N	ncontrol_col
 N_CON	ncontrol_col
 N_CONTROL	ncontrol_col
@@ -330,16 +334,26 @@ IMPUTATION	imp_info_col
 R2HAT	imp_info_col
 RSQ	imp_info_col
 minINFO	imp_info_col
+chr:pos	chr_pos_col
 """
 
 # Parse column mapping
 COLUMN_MAPPING = {}
-for line in COLUMN_MAP_SOURCE.strip().split('\n'):
+for line in COLUMN_MAP_SOURCE.strip().split('\n'): 
     if line.strip(): 
         parts = line.split('\t')
         if len(parts) == 2:
             key, val = parts
             COLUMN_MAPPING[key.upper()] = val
+
+COLUMN_MAPPING_ORDERED = []
+for line in COLUMN_MAP_SOURCE.strip().split('\n'): 
+    if line.strip(): 
+        parts = line.split('\t')
+        if len(parts) == 2:
+            key, val = parts
+            # Store as (Header_to_look_for, Target_Category)
+            COLUMN_MAPPING_ORDERED.append((key.upper(), val))
 
 # --- CORRECTED OUTPUT_COLUMNS (Fixed Spelling resource_folder) ---
 OUTPUT_COLUMNS = [
@@ -355,8 +369,10 @@ OUTPUT_COLUMNS = [
 # ---------------------------------------------------------
 
 def get_file_handle(file_path: Path):
-    if file_path.suffix == '.gz':
+    if file_path.suffix == '.gz' or file_path.suffix == '.bgz':
         return gzip.open(file_path, 'rt', encoding='utf-8', errors='replace')
+    elif file_path.suffix == '.bz2':
+        return bz2.open(file_path, 'rt', encoding='utf-8', errors='replace')
     else:
         return open(file_path, 'r', encoding='utf-8', errors='replace')
 
@@ -387,17 +403,45 @@ def get_header_and_delimiter(file_path: Path) -> Tuple[List[str], str]:
         print(f"Error reading header for {file_path}: {e}")
         return [], ''
 
+# def map_header_to_standard(headers: List[str]) -> Dict[str, str]:
+#     mapped_data = {target: "NA" for target in set(COLUMN_MAPPING.values())}
+#     for h in headers:
+#         h_upper = h.upper()
+#         if h_upper in COLUMN_MAPPING:
+#             target_col = COLUMN_MAPPING[h_upper]
+#             if mapped_data[target_col] == "NA":
+#                 mapped_data[target_col] = h
+#         elif h_upper.startswith("FRQ_U"):
+#             if mapped_data["eaf_col"] == "NA":
+#                 mapped_data["eaf_col"] = h
+#         elif h_upper.startswith("FREQ_U"):
+#             if mapped_data["eaf_col"] == "NA":
+#                 mapped_data["eaf_col"] = h
+#     return mapped_data
+
 def map_header_to_standard(headers: List[str]) -> Dict[str, str]:
+    # Normalize file headers for comparison
+    file_headers_upper = {h.upper(): h for h in headers}
+    # Initialize result dictionary
     mapped_data = {target: "NA" for target in set(COLUMN_MAPPING.values())}
-    for h in headers:
-        h_upper = h.upper()
-        if h_upper in COLUMN_MAPPING:
-            target_col = COLUMN_MAPPING[h_upper]
-            if mapped_data[target_col] == "NA":
-                mapped_data[target_col] = h
-        elif h_upper.startswith("FRQ_U"):
-            if mapped_data["eaf_col"] == "NA":
+    # Track which categories are already 'locked' (first map found)
+    assigned_categories = set()
+    # Iterate through the PRIORITY list (COLUMN_MAP_SOURCE order)
+    for source_variant, target_col in COLUMN_MAPPING_ORDERED:
+        # If this category hasn't been filled yet...
+        if target_col not in assigned_categories:
+            # ...and if the current priority variant exists in the file
+            if source_variant in file_headers_upper:
+                mapped_data[target_col] = file_headers_upper[source_variant]
+                # STOP further mapping for this category
+                assigned_categories.add(target_col)
+    # Handle special prefix-based logic for EAF if still NA
+    if mapped_data["eaf_col"] == "NA":
+        for h in headers:
+            h_up = h.upper()
+            if h_up.startswith("FRQ_U") or h_up.startswith("FREQ_U"):
                 mapped_data["eaf_col"] = h
+                break
     return mapped_data
 
 def generate_sumstat_mapping_table(
@@ -414,7 +458,7 @@ def generate_sumstat_mapping_table(
 
     results = []
     # Extension whitelist: only process files that likely contain GWAS data
-    valid_extensions = {'.gz', '.txt', '.tsv', '.bgz', '.sumstats', '.meta'}
+    valid_extensions = {'.gz', '.txt', '.tsv', '.bgz', '.sumstats', '.meta','.bz2','.csv'}
     
     for file_path in input_path.iterdir():
         # 1. Skip directories, hidden files, and non-GWAS extensions
@@ -455,7 +499,7 @@ def generate_sumstat_mapping_table(
                 "eaffile": "NA",
                 "eafcolumn": "NA",
                 "liftover": "Yes",
-                "chr_pos_col": "NA",
+                "chr_pos_col": mapped_cols.get("chr_pos_col", "NA"),
                 "resourse_folder": resource_folder,
             }
             results.append(row)

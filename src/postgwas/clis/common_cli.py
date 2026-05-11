@@ -968,7 +968,7 @@ def get_common_sumstat_filter_parser(add_help=False):
         "--info-cutoff",
         type=float,
         metavar=" ",
-        default=0.3,
+        default=None,
         help=(
             "Primary minimum INFO (imputation quality) threshold.\n"
             "Variants with INFO < cutoff will be removed.\n\n"
@@ -976,7 +976,7 @@ def get_common_sumstat_filter_parser(add_help=False):
             "  • Overrides --info-min if both are provided\n"
             "  • Can be combined with --info-max\n\n"
             "Typical values: 0.6, 0.8\n"
-            "Default: 0.3"
+            "Default: None"
         )
     )
 
@@ -984,12 +984,12 @@ def get_common_sumstat_filter_parser(add_help=False):
         "--info-min",
         type=float,
         metavar=" ",
-        default=None,
+        default=0.3,
         help=(
             "Minimum INFO threshold (used only if --info-cutoff is NOT provided).\n"
             "Variants with INFO < info-min will be removed.\n\n"
             "Ignored when --info-cutoff is set.\n"
-            "Default: None"
+            "Default: 0.3"
         )
     )
 

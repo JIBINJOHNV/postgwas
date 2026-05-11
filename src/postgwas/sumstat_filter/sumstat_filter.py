@@ -107,11 +107,15 @@ def filter_gwas_vcf_bcftools(
             base_expr = f"(FORMAT/SI >= {info_min})"
         else:
             base_expr = f"(FORMAT/SI <= {info_max})"
+    
     if base_expr is not None:
         if info_missing == "keep":
-            info_expr = f"({base_expr} | FORMAT/SI=\".\")"
+            # Inside the filter, '.' must be in single quotes
+            info_expr = f"({base_expr} | (FORMAT/SI == '.'))" 
         else:
-            info_expr = base_expr
+            info_expr = f"({base_expr} & (FORMAT/SI != '.'))"
+        
+
     if info_expr is not None:
         include_parts.append(info_expr)
     if allelefreq_diff_cutoff is not None:
@@ -124,9 +128,9 @@ def filter_gwas_vcf_bcftools(
     # EXCLUDE LOGIC
     # ============================================================
     palindromic_logic = (
-    '((REF==\\"A\\" & ALT==\\"T\\") | (REF==\\"T\\" & ALT==\\"A\\") | '
-    '(REF==\\"C\\" & ALT==\\"G\\") | (REF==\\"G\\" & ALT==\\"C\\"))'
-    )   
+    "((REF=='A' & ALT=='T') | (REF=='T' & ALT=='A') | "
+    "(REF=='C' & ALT=='G') | (REF=='G' & ALT=='C'))"
+    )  
     exclude_expr = None
     if exclude_palindromic:
         exclude_expr = (
@@ -141,7 +145,7 @@ def filter_gwas_vcf_bcftools(
     # ============================================================
     cmd_parts = []
     # speed edit: no --threads on intermediate uncompressed stream step
-    cmd1 = f"bcftools view -Ou -i '{include_expr}'"
+    cmd1 = f'bcftools view -Ou -i "{include_expr}"'
     if not include_indels:
         cmd1 += " --types snps"
     cmd1 += f" {vcf_path}"
@@ -149,7 +153,7 @@ def filter_gwas_vcf_bcftools(
     # keep -e separate from -i
     if exclude_expr:
         # speed edit: no --threads on intermediate uncompressed stream step
-        cmd_parts.append(f"bcftools view -Ou -e '{exclude_expr}'")
+        cmd_parts.append(f'bcftools view -Ou -e "{exclude_expr}"')
     if remove_mhc:
         mhc_bed = os.path.join(output_folder, f"{output_prefix}_mhc_exclude.bed")
         with open(mhc_bed, "w") as f:
@@ -168,10 +172,9 @@ def filter_gwas_vcf_bcftools(
     # keep threads here where they help most: final bgzip compression
     cmd_parts.append(f"bcftools view -Oz --threads {threads}")
     pipeline_core = " | ".join(cmd_parts)
-    pipeline = (
-    f'bash -o pipefail -c "set -euo pipefail; set +H; '
-    f'{pipeline_core} > {output_vcf} && tabix -f -p vcf {output_vcf}"'
-    )
+
+
+    pipeline = f"{pipeline_core} > {shlex.quote(output_vcf)} && tabix -f -p vcf {shlex.quote(output_vcf)}"
     log_print("🚀 Full bcftools pipeline:")
     log_print(pipeline)
     log_print("")
@@ -236,12 +239,18 @@ def filter_gwas_vcf_bcftools(
     else:
         print("\t\t\t   • MHC region variants: NOT removed")
     print("")
-    if extra_options is not None:
+    if extra_options is not None: 
         print(f"\t\t\t📊 Variants in the input file                                     : {extra_options.get('total_variant_infile', 0):,}")
         print(f"\t\t\t📊 Variants successfully read by harmonisation module             : {extra_options.get('total_variant_read', 0):,}")
+        print(f"\t\t\t📊 Variants removed due to NULL coordinates or invalid chromosomes: {extra_options.get('total_variant_removed_null_coords', 0):,}")
+        print(f"\t\t\t📊 Variants removed due to non-standard alleles                   : {extra_options.get('total_variant_removed_non_standard_alleles', 0):,}")
+        print(f"\t\t\t📊 Variants remaining for harmonization                           : {extra_options.get('total_variant_remaining_for_harmonisation', 0):,}")
+        print(f"\t\t\t📊 Variants with missing EAF                                      : {extra_options.get('total_variant_with_missing_eaf', 0):,}")
+        print(f"\t\t\t📊 Variants with invalid beta, SE, or Z-score                     : {extra_options.get('total_variant_with_invalid_beta_se', 0):,}")
         print(f"\t\t\t📊 Variants USED for VCF creation                                 : {extra_options.get('total_variant_in_vcf_input', 0):,}")
     print(f"\t\t\t📊 Variants IN the VCF FILE BEFORE filtering                      : {pre_variants if pre_variants is not None else 0:,}")
     print(f"\t\t\t📊 Variants IN the VCF FILE AFTER filtering                       : {post_variants if post_variants is not None else 0:,}")
+
     if pre_variants is not None and post_variants is not None:
         print(f"\t\t\t🧮 Variants REMOVED during filtering                              : {pre_variants - post_variants:,}")
     print("")

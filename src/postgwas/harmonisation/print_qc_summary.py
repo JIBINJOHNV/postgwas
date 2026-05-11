@@ -21,6 +21,8 @@ def print_qc_summary(final_qc_df, columns=None, warn_threshold=0.05):
         "ts_tv_ratio": "Transition / Transversion ratio",
         "variants_with_missing_extrnal_af": "Variants missing external allele frequency",
         "variants_with_EAF_diff_gt_cutoff": "Variants with large EAF discrepancy & missing external allele frequency",
+        "total_variant_with_missing_eaf": "Total variant with missing EAF",
+        "total_variant_with_invalid_beta_se": "Total variant with invalid beta, SE, or Z-score",
     }
 
     available_cols = [c for c in columns if c in final_qc_df.columns]
@@ -69,6 +71,16 @@ def print_qc_summary(final_qc_df, columns=None, warn_threshold=0.05):
                     f"{PREFIX}❗ {QC_LABELS['variants_with_missing_extrnal_af']}: "
                     f"{ratio*100:.2f}% "
                     f"({int(final_qc_df.loc['variants_with_missing_extrnal_af', col]):,} variants)"
+                )
+         
+        # Variants with missing external AF
+        if "total_variant_with_missing_eaf" in final_qc_df.index:
+            ratio = frac(final_qc_df.loc["total_variant_with_missing_eaf", col])
+            if ratio > warn_threshold:
+                warning_lines.append(
+                    f"{PREFIX}❗ {QC_LABELS['total_variant_with_missing_eaf']}: "
+                    f"{ratio*100:.2f}% "
+                    f"({int(final_qc_df.loc['total_variant_with_missing_eaf', col]):,} variants)"
                 )
 
         # Large EAF discordance (allele flip warning)

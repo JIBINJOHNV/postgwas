@@ -29,6 +29,9 @@ def run_sumstat_filter_direct(args,ctx=None):
         maf_cutoff=args.maf_cutoff,
         allelefreq_diff_cutoff=args.allelefreq_diff_cutoff,
         info_cutoff=args.info_cutoff,
+        info_missing=args.info_missing,
+        info_min=args.info_min,
+        info_max=args.info_max,
         external_af_name=args.external_af_name,
         include_indels=args.include_indels,
         exclude_palindromic=args.exclude_palindromic,
@@ -37,7 +40,8 @@ def run_sumstat_filter_direct(args,ctx=None):
         mhc_start=args.mhc_start,
         mhc_end=args.mhc_end,
         threads=args.nthreads,
-        max_mem=args.max_mem
+        max_mem=args.max_mem,
+
     )
     # -------------------------------------------------
     # Pipeline mode: register outputs

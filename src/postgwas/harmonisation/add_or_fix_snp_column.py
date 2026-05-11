@@ -43,7 +43,7 @@ def add_or_fix_snp_column(
     # -------------------------------------------------------
     # MAIN LOGIC
     # -------------------------------------------------------
-    log_print("\n🧬 Starting SNP column harmonization...")
+    log_print(f"📊 [Chr {chromosome}] Starting SNP column harmonization...")
 
     # Extract mappings
     chr_col = sample_column_dict.get("chr_col")

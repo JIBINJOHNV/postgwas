@@ -76,7 +76,7 @@ def gwastovcf(
         "--data", str(input_tsv),
         "--ref", str(fasta),
         "--out", str(output_vcf),
-        "--id", gwas_outputname,
+        "--id", str(gwas_outputname),
         "--json", str(json_dict)
     ]
 

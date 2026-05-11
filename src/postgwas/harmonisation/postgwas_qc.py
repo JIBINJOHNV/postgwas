@@ -1,95 +1,161 @@
 import pandas as pd
-from typing import Dict, Any
-from pathlib import Path
 import json
-
-
-import json
-import pandas as pd
 from pathlib import Path
 
+def flatten_dict(d, parent_key='', sep='_'):
+    """Recursively flattens a dictionary."""
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
 
+def qc_json_to_dataframes(json_path):
+    with open(json_path, 'r') as f:
+        data = json.load(f)
+    
+    rows = []
+    global_metrics = {}
 
-
-def qc_json_to_dataframes(qc_file):
-    qc_file = Path(qc_file)
-    with qc_file.open() as f:
-        qc = json.load(f)
-    # Capture totals
-    total_variant_infile = qc.get("total_variant_infile", None)
-    total_variant_read   = qc.get("total_variant_read", None)
-    chrom_keys = [k for k in qc.keys() if k.isdigit()]
-    long_records = []
-    for chrom in chrom_keys:
-        chrom_data = qc[chrom]
-        for section_name, section_data in chrom_data.items():
-            # --- SPECIAL CASE: sample_size_qc ---
-            if section_name == "sample_size_qc":
-                # 1. Handle simple metrics
-                if isinstance(section_data, dict):
-                    for k, v in section_data.items():
-                        if k != "sample_size_stats":
-                            long_records.append({
-                                "chromosome": chrom,
-                                "section": section_name,
-                                "metric": k,
-                                "value": v
-                            })
-                    # 2. Handle nested stats safely
-                    stats = section_data.get("sample_size_stats", {})
-                    # FIX: Check if 'stats' is actually a dictionary
-                    if isinstance(stats, dict):
-                        for group_name, group_values in stats.items():
-                            if isinstance(group_values, dict):
-                                for stat_name, stat_value in group_values.items():
-                                    long_records.append({
-                                        "chromosome": chrom,
-                                        "section": section_name,
-                                        "metric": f"{group_name}_{stat_name}",
-                                        "value": stat_value
-                                    })
-                    else:
-                        print(f"⚠️ Warning: 'sample_size_stats' in Chr{chrom} is not a dict. Value: {stats}")
-            # --- NORMAL SECTIONS ---
-            elif isinstance(section_data, dict):
-                for k, v in section_data.items():
-                    if isinstance(v, dict):
-                        for k2, v2 in v.items():
-                            long_records.append({
-                                "chromosome": chrom,
-                                "section": section_name,
-                                "metric": f"{k}_{k2}",
-                                "value": v2
-                            })
-                    else:
-                        long_records.append({
-                            "chromosome": chrom,
+    for key, value in data.items():
+        # Identify chromosome keys (numeric strings or X/Y/MT)
+        if (key.isdigit() or key in ["X", "Y", "MT"]) and isinstance(value, dict):
+            for section_name, section_content in value.items():
+                if isinstance(section_content, dict):
+                    # Flatten deep structures (like sample_size_stats_N_min)
+                    flat_section = flatten_dict(section_content)
+                    for metric_name, val in flat_section.items():
+                        rows.append({
                             "section": section_name,
-                            "metric": k,
-                            "value": v
+                            "metric": metric_name,
+                            "chromosome": f"chr{key}",
+                            "value": val
                         })
-    # If no data found, return empty DF
-    if not long_records:
+                else:
+                    # Handle top-level values within a chromosome (e.g., exit_code)
+                    rows.append({
+                        "section": "summary",
+                        "metric": section_name,
+                        "chromosome": f"chr{key}",
+                        "value": section_content
+                    })
+        else:
+            # Root level global values
+            global_metrics[key] = value
+
+    # Create the main DataFrame from chromosome data
+    if not rows:
         return pd.DataFrame()
-    qc_long = pd.DataFrame(long_records)
-    # Pivot
-    df = qc_long.pivot(
-        index=["section", "metric"],
-        columns="chromosome",
+
+    df_long = pd.DataFrame(rows)
+    
+    # Pivot so chromosomes are columns
+    df_pivot = df_long.pivot(
+        index=["section", "metric"], 
+        columns="chromosome", 
         values="value"
     ).reset_index()
-    # Clean columns
-    df.columns = [
-        "_".join(col).strip() if isinstance(col, tuple) else col
-        for col in df.columns
-    ]
-    df.columns = [c.replace("value_", "") for c in df.columns]
-    # Add 'chr' prefix for numeric columns
-    df.columns = [f"chr{c}" if str(c).isdigit() else c for c in df.columns]
-    # Add totals
-    df["total_variant_infile"] = total_variant_infile
-    df["total_variant_read"]   = total_variant_read
-    return df
+
+    # Create Global rows and append them
+    global_rows = []
+    for k, v in global_metrics.items():
+        global_rows.append({
+            "section": "GLOBAL",
+            "metric": k,
+            "GLOBAL_VALUE": v
+        })
+    
+    if global_rows:
+        df_global = pd.DataFrame(global_rows)
+        # Combine the pivoted data with the global summary rows
+        df_final = pd.concat([df_pivot, df_global], axis=0, ignore_index=True)
+        return df_final
+
+    return df_pivot
+
+
+# def qc_json_to_dataframes(qc_file):
+#     qc_file = Path(qc_file)
+#     with qc_file.open() as f:
+#         qc = json.load(f)
+#     # Capture totals
+#     total_variant_infile = qc.get("total_variant_infile", None)
+#     total_variant_read   = qc.get("total_variant_read", None)
+#     chrom_keys = [k for k in qc.keys() if k.isdigit()]
+#     long_records = []
+#     for chrom in chrom_keys:
+#         chrom_data = qc[chrom]
+#         for section_name, section_data in chrom_data.items():
+#             # --- SPECIAL CASE: sample_size_qc ---
+#             if section_name == "sample_size_qc":
+#                 # 1. Handle simple metrics
+#                 if isinstance(section_data, dict):
+#                     for k, v in section_data.items():
+#                         if k != "sample_size_stats":
+#                             long_records.append({
+#                                 "chromosome": chrom,
+#                                 "section": section_name,
+#                                 "metric": k,
+#                                 "value": v
+#                             })
+#                     # 2. Handle nested stats safely
+#                     stats = section_data.get("sample_size_stats", {})
+#                     # FIX: Check if 'stats' is actually a dictionary
+#                     if isinstance(stats, dict):
+#                         for group_name, group_values in stats.items():
+#                             if isinstance(group_values, dict):
+#                                 for stat_name, stat_value in group_values.items():
+#                                     long_records.append({
+#                                         "chromosome": chrom,
+#                                         "section": section_name,
+#                                         "metric": f"{group_name}_{stat_name}",
+#                                         "value": stat_value
+#                                     })
+#                     else:
+#                         print(f"⚠️ Warning: 'sample_size_stats' in Chr{chrom} is not a dict. Value: {stats}")
+#             # --- NORMAL SECTIONS ---
+#             elif isinstance(section_data, dict):
+#                 for k, v in section_data.items():
+#                     if isinstance(v, dict):
+#                         for k2, v2 in v.items():
+#                             long_records.append({
+#                                 "chromosome": chrom,
+#                                 "section": section_name,
+#                                 "metric": f"{k}_{k2}",
+#                                 "value": v2
+#                             })
+#                     else:
+#                         long_records.append({
+#                             "chromosome": chrom,
+#                             "section": section_name,
+#                             "metric": k,
+#                             "value": v
+#                         })
+#     # If no data found, return empty DF
+#     if not long_records:
+#         return pd.DataFrame()
+#     qc_long = pd.DataFrame(long_records)
+#     # Pivot
+#     df = qc_long.pivot(
+#         index=["section", "metric"],
+#         columns="chromosome",
+#         values="value"
+#     ).reset_index()
+#     # Clean columns
+#     df.columns = [
+#         "_".join(col).strip() if isinstance(col, tuple) else col
+#         for col in df.columns
+#     ]
+#     df.columns = [c.replace("value_", "") for c in df.columns]
+#     # Add 'chr' prefix for numeric columns
+#     df.columns = [f"chr{c}" if str(c).isdigit() else c for c in df.columns]
+#     # Add totals
+#     df["total_variant_infile"] = total_variant_infile
+#     df["total_variant_read"]   = total_variant_read
+#     return df
 
 # def qc_json_to_dataframes(qc_file):
 #     """

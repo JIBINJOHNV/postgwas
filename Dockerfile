@@ -177,5 +177,6 @@ RUN micromamba run -n postgwas pip install --upgrade pip && \
 # =====================================================================
 ENV HOME=/tmp
 RUN chown -R mambauser:mambauser /opt/postgwas
-USER mambauser
-ENTRYPOINT ["micromamba", "run", "-n", "postgwas"]
+ENV PATH="/opt/conda/envs/postgwas/bin:$PATH"
+USER root
+ENTRYPOINT [] 
