@@ -296,8 +296,10 @@ P.VAL	pval_col
 P.VALUE	pval_col
 PVAL	pval_col
 PVALUE	pval_col
+neg_log_10_p_value	pval_col
 Pval_Estimate	pval_col
 EZ	imp_z_col
+z_score	imp_z_col
 MTAG_Z	imp_z_col
 Z	imp_z_col
 Z-SCORE	imp_z_col

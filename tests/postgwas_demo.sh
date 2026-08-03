@@ -5,6 +5,20 @@ docker run --platform=linux/amd64 \
 
 
 
+
+
+## convert summstat to vcf and harmonise
+docker run --platform=linux/amd64 \
+    -v /Users/JJOHN41/:/Users/JJOHN41/ \
+    -it jibinjv/postgwas:1.4 postgwas harmonisation \
+        --nthreads 10 \
+        --max-mem 50G \
+        --config /Users/JJOHN41/Documents/developing_software/postgwas/tests/example_input_file.csv \
+        --defaults /Users/JJOHN41/Documents/developing_software/postgwas/tests/harmonisation.yaml
+
+
+
+
 docker run --platform=linux/amd64 \
   -v /Users/JJOHN41/:/Users/JJOHN41/ \
   -it jibinjv/postgwas:1.3 python /opt/postgwas/src/postgwas/scripts/create_sumstat_map_pl.py \

@@ -105,14 +105,14 @@ WORKDIR /opt/tools
 SHELL ["/bin/bash", "-c"]
 
 # Download -> Compile -> Install -> DELETE SOURCE
-RUN wget https://github.com/samtools/bcftools/releases/download/1.22/bcftools-1.22.tar.bz2 && \
-    wget https://github.com/samtools/htslib/releases/download/1.22/htslib-1.22.tar.bz2 && \
-    tar -xvjf bcftools-1.22.tar.bz2 && \
-    tar -xvjf htslib-1.22.tar.bz2 && \
-    cd htslib-1.22 && \
+RUN wget https://github.com/samtools/bcftools/releases/download/1.23/bcftools-1.23.tar.bz2 && \
+    wget https://github.com/samtools/htslib/releases/download/1.23/htslib-1.23.tar.bz2 && \
+    tar -xvjf bcftools-1.23.tar.bz2 && \
+    tar -xvjf htslib-1.23.tar.bz2 && \
+    cd htslib-1.23 && \
     ./configure --enable-libcurl --prefix=/usr/local && \
     make -j && make install && \
-    cd ../bcftools-1.22/plugins && \
+    cd ../bcftools-1.23/plugins && \
     wget https://raw.githubusercontent.com/freeseek/score/master/score.c && \
     wget https://raw.githubusercontent.com/freeseek/score/master/score.h && \
     wget https://raw.githubusercontent.com/freeseek/score/master/munge.c && \
@@ -124,10 +124,10 @@ RUN wget https://github.com/samtools/bcftools/releases/download/1.22/bcftools-1.
     cd .. && \
     sed -i '2254s/^/\/\//' plugins/pgs.c && \
     sed -i '2255s/^/\/\//' plugins/pgs.c && \
-    ./configure --prefix=/usr/local --with-htslib=/opt/tools/htslib-1.22 CPPFLAGS="-I/usr/include/suitesparse" CFLAGS="-I/usr/include/suitesparse" && \
+    ./configure --prefix=/usr/local --with-htslib=/opt/tools/htslib-1.23 CPPFLAGS="-I/usr/include/suitesparse" CFLAGS="-I/usr/include/suitesparse" && \
     make -j && make install && \
     cd /opt/tools && \
-    rm -rf bcftools-1.22 htslib-1.22 *.tar.bz2
+    rm -rf bcftools-1.23 htslib-1.23 *.tar.bz2
 
 ENV BCFTOOLS_PLUGINS="/usr/local/libexec/bcftools"
 
@@ -156,6 +156,19 @@ RUN wget http://www.christianbenner.com/ldstore_v2.0_x86_64.tgz && \
 
 COPY magma/magma /usr/local/bin/magma
 RUN chmod +x /usr/local/bin/magma
+
+# =====================================================================
+# Install SnpEff
+# =====================================================================
+WORKDIR /opt
+
+RUN wget https://snpeff-public.s3.amazonaws.com/versions/snpEff_latest_core.zip && \
+    unzip snpEff_latest_core.zip && \
+    rm snpEff_latest_core.zip && \
+    rm -rf /opt/snpEff/examples
+
+ENV SNPEFF_HOME=/opt/snpEff
+ENV PATH="${SNPEFF_HOME}:$PATH"
 
 # =====================================================================
 # Install PostGWAS (Keep R-related dependencies)

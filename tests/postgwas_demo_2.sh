@@ -122,18 +122,19 @@ done
   docker run --platform=linux/amd64 \
     -u $(id -u):$(id -g) \
     -v /mnt/disks/sdd/:/mnt/disks/sdd/ \
-    --rm jibinjv/postgwas:1.3 python /opt/postgwas/src/postgwas/scripts/create_sumstat_map_pl.py \
-    --input /mnt/disks/sdd/bnmf-clustering/sumstat/scz/ \
-    --output-path /mnt/disks/sdd/bnmf-clustering/final_sumstat_vcf/gpca_gwas2vcf_input3.tsv \
+    --rm jibinjv/postgwas:1.4 python /opt/postgwas/src/postgwas/scripts/create_sumstat_map_pl.py \
+    --input /mnt/disks/sdd/GWAS_sumstat2/ \
+    --output-path /mnt/disks/sdd/GWAS_sumstat2/vcf_output/gwas2vcf_input.tsv \
     --resource-folder /mnt/disks/sdd/resourses/postgwas/gwas2vcf/ \
-    --harmonisation-output-path /mnt/disks/sdd/bnmf-clustering/final_sumstat_vcf/
+    --harmonisation-output-path /mnt/disks/sdd/GWAS_sumstat2/vcf_output/
  
-
-docker run --platform=linux/amd64 \
-   -u $(id -u):$(id -g) \
+ 
+ nohup docker run --platform=linux/amd64 \
+    -u $(id -u):$(id -g) \
     -v /mnt/disks/sdd/:/mnt/disks/sdd/ \
-    -it jibinjv/postgwas:1.3 postgwas harmonisation \
-        --nthreads 10 \
+    jibinjv/postgwas:1.4 postgwas harmonisation \
+        --nthreads 23 \
         --max-mem 50G \
-        --config /mnt/disks/sdd/bnmf-clustering/final_sumstat_vcf/gpca_gwas2vcf_input2.tsv \
-        --defaults /mnt/disks/sdd/postgwas_analysis/harmonisation.yaml
+        --config /mnt/disks/sdd/GWAS_sumstat2/gwas2vcf_input2.tsv \
+        --defaults /mnt/disks/sdd/harmonisation.yaml > "/mnt/disks/sdd/GWAS_sumstat2/vcf_output/gwas2vcf_input2.log" 2>&1 &
+

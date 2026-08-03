@@ -67,12 +67,30 @@ def calculate_beta_and_se_from_z(
             f"📊 [Chr {chromosome}] Starting calculation of BETA/SE from Z-score column: {imp_z_col}...",
             indent=0,
             screen=True
-        )
+        ) 
 
         # -------------------------------------------------------
         # Validate required columns
         # -------------------------------------------------------
-        if beta_col != "NA" and se_col != "NA":
+        if beta_col == "NA" and imp_z_col == "NA":
+            log_print(
+                f"Beta column is not present, but Z-score column also missing, so not able to do harmonisation",
+                indent=4,
+                screen=True
+            )
+            qc_info["status"] = "skipped_no_zscore_or_effectsize_column"
+            with open(log_file, "w") as f:
+                f.write(log_buffer.getvalue())
+
+            if screen_buffer:
+                print("\n".join(screen_buffer), flush=True)
+
+            raise KeyError("Please provide sumstat file with Z-score or BETA/OR columns. Both columns are missing.") 
+            
+        # -------------------------------------------------------
+        # Validate required columns
+        # -------------------------------------------------------
+        if beta_col != "NA" or se_col != "NA":
             if imp_z_col != "NA":
                 log_print(
                     f"Beta and SE columns are present, so skipping the calculation of BETA and SE from Z-score column {imp_z_col}.",
@@ -86,11 +104,27 @@ def calculate_beta_and_se_from_z(
                     screen=True
                 )
                 log_print(
-                    f"In this file, the Z-score column is not present, it will be calcualted in the next step from BETA and SE columns.\n",
+                    f"In this file, the Z-score column is not present, it will be calculated in the next step from BETA and SE columns.\n",
                     indent=4,
                     screen=True
                 )
             qc_info["status"] = "Beta and SE columns are present"
+
+            with open(log_file, "w") as f:
+                f.write(log_buffer.getvalue())
+
+            if screen_buffer:
+                print("\n".join(screen_buffer), flush=True)
+
+            return df, qc_info, sample_column_dict
+
+        if beta_col != "NA" and se_col == "NA":
+            log_print(
+                f"Beta column is present, but SE column is missing, so skipping the calculation of BETA from Z-score column {imp_z_col}. SE will be calculated in the next step using `calculate_se_from_beta_pvalue` function.",
+                indent=4,
+                screen=True
+            )
+            qc_info["status"] = "Beta column is present, but SE column is missing"
 
             with open(log_file, "w") as f:
                 f.write(log_buffer.getvalue())

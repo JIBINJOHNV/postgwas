@@ -40,7 +40,7 @@ def calculate_se_from_beta_pvalue(
         # -------------------------------------------------------
         log_print(f"\n📊 [Chr {chromosome}] Starting SE calculation...")
 
-        beta_col = sample_column_dict.get("beta_or_col", "NA")
+        beta_col = sample_column_dict.get("beta_col", "NA")
         se_col   = sample_column_dict.get("se_col", "NA")
         pval_col = sample_column_dict.get("pval_col", "NA")
 
@@ -112,14 +112,14 @@ def calculate_se_from_beta_pvalue(
               .alias("_pval_safe")
         )
 
-        log_print(f"              📈 Computing SE using norm.ppf... chr{chromosome}")
+        log_print(f"              📈 Computing SE using norm.ppf... chr{chromosome} using tail = {tail}")
+        log_print(f"              ℹ️ Beta column: '{beta_col}', P-value column: '{pval_col}'")
 
-        # -------------------------------------------------------
+        # ------------------------------------------------------- 
         # Compute Z
         # -------------------------------------------------------
         z = norm.ppf(df["_pval_safe"].to_numpy() / tail)
         z[z == 0] = np.nan
-
         se = np.abs(df[beta_col].to_numpy() / z)
 
         # -------------------------------------------------------

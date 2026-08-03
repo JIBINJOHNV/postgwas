@@ -46,7 +46,7 @@ def is_beta_or_or(
         if not effect_col or effect_col not in df.columns:
             raise ValueError("❌ Effect size column ('beta_or_col') missing or not found in dataframe.")
 
-        # Cast to float safely
+        # Cast to float safely 
         # df = df.with_columns(pl.col(effect_col).cast(pl.Float64, strict=False)) 
         df = df.with_columns(pl.col(effect_col).cast(pl.Float64, strict=True))
         # -------------------------------------------------------
@@ -147,7 +147,7 @@ def is_beta_or_or(
                 .then(pl.col(effect_col).log())
                 .otherwise(None)
                 .alias("beta")
-            )
+            ) 
 
             sample_column_dict["beta_col"] = "beta"
             qc_info["conversion"] = "OR_to_Beta_log_transform_applied"

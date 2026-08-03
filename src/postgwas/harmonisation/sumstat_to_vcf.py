@@ -1,3 +1,4 @@
+from postgwas.harmonisation import gwastovcf_gwas2vcf
 from pathlib import Path
 import shutil
 import subprocess
@@ -170,15 +171,14 @@ def run_bcftools_annot(
     log_variant_stats(log, "ORIGINAL", counts["ORIGINAL"], None, counts["ORIGINAL"], chromosome)
 
     # =======================================================
-    # STEP 0: NORMALIZATION
+    # STEP 0: NORMALIZATION 
     # =======================================================
     _run_bcftools_step([
         "bash", "-c",
         f"""
         set -euo pipefail
         bcftools norm --threads {threads} -Ou -m-any -d exact --fasta-ref "{genome_fasta_file}" "{input_vcf}" |
-        bcftools view --threads {threads} -Oz -o "{norm_vcf}" &&
-        tabix -f -p vcf "{norm_vcf}"
+        bcftools annotate --threads {threads} -x ID -Oz -o {norm_vcf} --write-index=tbi
         """
     ], log_file, "STEP0_NORM", chromosome)
 
@@ -186,21 +186,39 @@ def run_bcftools_annot(
     log_variant_stats(log, "NORM", counts["NORM"], counts["ORIGINAL"], counts["ORIGINAL"], chromosome)
 
     # =======================================================
-    # STEP 1: ID ANNOTATION
+    # STEP 1: ID ANNOTATION 
     # =======================================================
-    _run_bcftools_step([
+    _run_bcftools_step([ 
         "bash", "-c",
         f"""
         set -euo pipefail
         bcftools annotate --threads {threads} \
             --annotations "{default_dbsnp_file}" \
-            --columns CHROM,POS,REF,ALT,ID "{norm_vcf}" |
-        bcftools norm --threads {threads} -Ou -m-any -d exact --fasta-ref "{genome_fasta_file}" |
-        bcftools annotate --threads {threads} --set-id +'%CHROM\\_%POS\\_%REF\\_%ALT' |
-        bcftools view --threads {threads} -Oz -o "{id_vcf}" &&
-        tabix -f -p vcf "{id_vcf}"
+            --columns ID --pair-logic exact \
+            "{norm_vcf}" |
+        bcftools annotate --threads {threads} \
+            --set-id +'%CHROM\\_%POS\\_%REF\\_%ALT' |
+        bcftools view --threads {threads} \
+            -Oz -o "{id_vcf}" \
+            --write-index=tbi
         """
     ], log_file, "STEP1_ID", chromosome)
+
+    # _run_bcftools_step([
+    #     "bash", "-c",
+    #     f"""
+    #     set -euo pipefail
+    #     micromamba run -n vep java -jar /opt/snpEff/SnpSift.jar annotate \
+    #         -id -tabix "{default_dbsnp_file}" "{norm_vcf}" |
+    #     bcftools annotate --threads {threads} \
+    #         --set-id +'%CHROM\\_%POS\\_%REF\\_%ALT' |
+    #     bcftools view --threads {threads} \
+    #         -Oz -o "{id_vcf}" \
+    #         --write-index=tbi
+    #     """
+    # ], log_file, "STEP1_ID", chromosome)
+
+    ##     bcftools norm --threads {threads} -Ou -m-any -d exact --fasta-ref "{genome_fasta_file}" |
 
     counts["ID"] = get_vcf_variant_count(str(id_vcf))
     log_variant_stats(log, "ID", counts["ID"], counts["NORM"], counts["ORIGINAL"], chromosome)
@@ -212,8 +230,11 @@ def run_bcftools_annot(
         "bcftools", "annotate",
         "--threads", str(threads),
         "--annotations", str(external_eaf_file),
+        "--pair-logic", "exact",
         "--columns", "CHROM,POS,REF,ALT,INFO/AFR,INFO/EAS,INFO/EUR,INFO/SAS",
-        "-Oz", "-o", str(af_vcf), "--write-index=tbi", str(id_vcf)
+        "-Oz", "-o", str(af_vcf),
+        "--write-index=tbi",
+        str(id_vcf)
     ], log_file, "STEP2_AF", chromosome)
 
     counts["EAF"] = get_vcf_variant_count(str(af_vcf))
