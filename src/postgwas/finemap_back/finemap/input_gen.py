@@ -1,13 +1,7 @@
 import polars as pl
 from pathlib import Path
 
-from postgwas.finemap.defaults import DEFAULT_MAX_MAF
-
-def write_finemap_z_file(
-    locus_ss: pl.DataFrame,
-    outfile: Path,
-    max_maf: float = DEFAULT_MAX_MAF,
-):
+def write_finemap_z_file(locus_ss: pl.DataFrame, outfile: Path):
     """
     Writes the .z file required by FINEMAP.
     Format: Space-delimited, columns: rsid chromosome position allele1 allele2 maf beta se
@@ -19,32 +13,11 @@ def write_finemap_z_file(
     if missing:
         raise ValueError(f"Input sumstats missing columns for FINEMAP .z generation: {missing}")
 
-    if locus_ss.is_empty():
-        raise ValueError("Cannot write an empty FINEMAP .z file")
-    if locus_ss.select(pl.any_horizontal(pl.col(cols).is_null()).any()).item():
-        raise ValueError("FINEMAP .z input contains null values")
-    if locus_ss.select(pl.col("rsid").is_duplicated().any()).item():
-        raise ValueError("FINEMAP .z input contains duplicate rsIDs")
-    invalid_numeric = locus_ss.filter(
-        ~pl.col("maf").is_finite()
-        | (pl.col("maf") <= 0)
-        | (pl.col("maf") > float(max_maf))
-        | ~pl.col("beta").is_finite()
-        | ~pl.col("se").is_finite()
-        | (pl.col("se") <= 0)
-    )
-    if invalid_numeric.height:
-        raise ValueError("FINEMAP .z input has invalid MAF, beta, or standard error")
-
     locus_ss.select(cols).write_csv(outfile, separator=" ")
 
 
 def write_snp_file(locus_ss: pl.DataFrame, outfile: Path):
     """Writes the list of variants (RSIDs) for PLINK extraction."""
-    if "rsid" not in locus_ss.columns or locus_ss.is_empty():
-        raise ValueError("Cannot write a SNP file without rsIDs")
-    if locus_ss.select(pl.col("rsid").is_null().any()).item():
-        raise ValueError("SNP list contains null rsIDs")
     locus_ss.select("rsid").write_csv(outfile, has_header=False)
 
 

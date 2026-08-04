@@ -88,6 +88,96 @@ def _require_nonempty_file(path: str | Path, label: str) -> Path:
     return file_path
 
 
+def validate_gene_identifier_overlap(
+    gene_loc_file: str | Path,
+    geneset_file: str | Path,
+    minimum_overlap: float = 0.50,
+) -> dict:
+    """Confirm that gene-location and GMT files use compatible gene IDs.
+
+    The first column of the MAGMA gene-location file is compared with the gene
+    columns (third column onward) of the GMT file.  Complete equality is not
+    expected because the files can cover different gene universes, so the
+    overlap is calculated relative to the smaller unique-ID universe.
+    """
+    if not 0 <= minimum_overlap <= 1:
+        raise ValueError("minimum gene-ID overlap must be between 0 and 1")
+
+    gene_loc_path = _require_nonempty_file(gene_loc_file, "Gene-location file")
+    gmt_path = _require_nonempty_file(geneset_file, "Gene-set file")
+
+    gene_loc_ids: set[str] = set()
+    with gene_loc_path.open("r") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            gene_id = stripped.split()[0]
+            if gene_id.upper() in {"GENE", "GENE_ID"}:
+                continue
+            gene_loc_ids.add(gene_id)
+
+    if not gene_loc_ids:
+        raise ValueError(
+            f"No gene IDs were found in the first column of {gene_loc_path}"
+        )
+
+    geneset_ids: set[str] = set()
+    geneset_count = 0
+    usable_geneset_count = 0
+    with gmt_path.open("r") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            parts = line.rstrip("\n\r").split("\t")
+            if len(parts) < 3:
+                raise ValueError(
+                    f"Malformed GMT line {line_number}: expected gene-set name, "
+                    "description, and at least one gene ID"
+                )
+            set_gene_ids = {value.strip() for value in parts[2:] if value.strip()}
+            if not set_gene_ids:
+                raise ValueError(f"GMT line {line_number} contains no gene IDs")
+            geneset_count += 1
+            geneset_ids.update(set_gene_ids)
+            if not gene_loc_ids.isdisjoint(set_gene_ids):
+                usable_geneset_count += 1
+
+    if not geneset_ids:
+        raise ValueError(f"No gene IDs were found in GMT columns 3 onward: {gmt_path}")
+
+    overlapping_ids = gene_loc_ids.intersection(geneset_ids)
+    comparison_size = min(len(gene_loc_ids), len(geneset_ids))
+    overlap_fraction = len(overlapping_ids) / comparison_size
+
+    result = {
+        "gene_location_unique_ids": len(gene_loc_ids),
+        "geneset_unique_ids": len(geneset_ids),
+        "comparison_unique_ids": comparison_size,
+        "overlapping_unique_ids": len(overlapping_ids),
+        "overlap_fraction_of_smaller_universe": overlap_fraction,
+        "minimum_required_overlap": minimum_overlap,
+        "total_gene_sets": geneset_count,
+        "gene_sets_with_at_least_one_location_gene": usable_geneset_count,
+    }
+
+    if not overlapping_ids or overlap_fraction < minimum_overlap:
+        gene_loc_examples = sorted(gene_loc_ids)[:5]
+        geneset_examples = sorted(geneset_ids)[:5]
+        raise ValueError(
+            "Gene identifiers in the gene-location and GMT files are "
+            "incompatible: "
+            f"{len(overlapping_ids):,}/{comparison_size:,} unique IDs overlap "
+            f"({overlap_fraction:.2%}); at least {minimum_overlap:.2%} is required. "
+            "The gene-location first column and GMT columns 3 onward must use "
+            "the same identifier system (for example, Entrez Gene IDs). "
+            f"Gene-location examples: {gene_loc_examples}. "
+            f"GMT examples: {geneset_examples}."
+        )
+
+    return result
+
+
 def _resolve_magma_executable(magma: str) -> str:
     resolved = shutil.which(magma)
     if resolved is None:
@@ -435,6 +525,7 @@ def run_magma_analysis(
     geneset_file: str | None = None,
     harmonize_snp_ids: bool = True,
     minimum_snp_overlap: float = 0.05,
+    minimum_gene_id_overlap: float = 0.50,
 ) -> dict:
     """Run annotation, gene analysis, batch merge, and optional gene-set analysis."""
     _validate_sample_id(sample_id)
@@ -447,6 +538,7 @@ def run_magma_analysis(
     folder.mkdir(parents=True, exist_ok=True)
     logger = setup_logger(log_file)
 
+    gene_id_validation = None
     try:
         magma_executable = _resolve_magma_executable(magma)
         _validate_ld_reference(ld_ref)
@@ -455,6 +547,24 @@ def run_magma_analysis(
         _require_nonempty_file(pval_file, "P-value file")
         if geneset_file is not None:
             _require_nonempty_file(geneset_file, "Gene-set file")
+            gene_id_validation = validate_gene_identifier_overlap(
+                gene_loc_file=gene_loc_file,
+                geneset_file=geneset_file,
+                minimum_overlap=minimum_gene_id_overlap,
+            )
+            logger.info(
+                "[input_validation] Gene-ID compatibility: %s",
+                gene_id_validation,
+            )
+            print(
+                "                 [Preflight] Gene-ID overlap: "
+                f"{gene_id_validation['overlapping_unique_ids']:,}/"
+                f"{gene_id_validation['comparison_unique_ids']:,} "
+                f"({gene_id_validation['overlap_fraction_of_smaller_universe']:.2%}); "
+                "usable gene sets: "
+                f"{gene_id_validation['gene_sets_with_at_least_one_location_gene']:,}/"
+                f"{gene_id_validation['total_gene_sets']:,}"
+            )
     except Exception as error:
         logger.exception("[input_validation] Validation failed")
         raise MagmaPipelineError("input_validation", sample_id, str(error)) from error
@@ -645,6 +755,7 @@ def run_magma_analysis(
         "genes_out": str(merged_out),
         "gsa_out": str(gsa_out) if gsa_out else None,
         "snp_harmonization": harmonization_result,
+        "gene_id_validation": gene_id_validation,
     }
 
 
@@ -673,7 +784,13 @@ def correct_p_values(
 
     try:
         _require_nonempty_file(gsa_out, "MAGMA gene-set output")
-        pdf = pd.read_fwf(gsa_out, comment="#", infer_nrows=500)
+        # MAGMA writes a whitespace-delimited table.  FULL_NAME is the final,
+        # variable-width column and can be much longer than the names present
+        # in the first few hundred rows.  read_fwf(infer_nrows=...) therefore
+        # truncates later names to the inferred width and can create false
+        # duplicates.  Gene-set identifiers cannot contain whitespace, so a
+        # whitespace-delimited parser preserves every FULL_NAME exactly.
+        pdf = pd.read_csv(gsa_out, sep=r"\s+", comment="#", engine="c")
         pdf = pdf.loc[:, [column for column in pdf.columns if str(column).strip()]]
         required = {"VARIABLE", "P"}
         missing = sorted(required.difference(pdf.columns))
@@ -904,6 +1021,7 @@ def magma_analysis_pipeline(
     magma: str = "magma",
     harmonize_snp_ids: bool = True,
     minimum_snp_overlap: float = 0.05,
+    minimum_gene_id_overlap: float = 0.50,
 ) -> dict:
     """Run the complete MAGMA pipeline and return actual output paths."""
     try:
@@ -925,6 +1043,7 @@ def magma_analysis_pipeline(
             magma=magma,
             harmonize_snp_ids=harmonize_snp_ids,
             minimum_snp_overlap=minimum_snp_overlap,
+            minimum_gene_id_overlap=minimum_gene_id_overlap,
         )
 
         result = {
@@ -932,6 +1051,7 @@ def magma_analysis_pipeline(
             "magma_genes_out": magma_result["genes_out"],
             "magma_genes_prefix": magma_result["merged_prefix"],
             "snp_harmonization": magma_result["snp_harmonization"],
+            "gene_id_validation": magma_result["gene_id_validation"],
         }
         if geneset_file is None:
             return result

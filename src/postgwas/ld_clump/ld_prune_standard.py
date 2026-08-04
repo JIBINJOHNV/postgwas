@@ -1,8 +1,9 @@
+
 import math
 import os
 import subprocess
 import textwrap
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
 from pathlib import Path
 
@@ -39,7 +40,9 @@ def canonical_variant_id(chrom, pos, allele_1, allele_2):
     """Create one allele-order-independent ID for summary and LD variants."""
     if any(value is None for value in (chrom, pos, allele_1, allele_2)):
         return None
-    chrom = str(chrom).upper().removeprefix("CHR")
+    chrom = str(chrom).upper()
+    if chrom.startswith("CHR"):  # noqa: FURB188 - support Python before 3.9
+        chrom = chrom[3:]
     if chrom.isdigit():
         chrom = str(int(chrom))
     try:
@@ -268,9 +271,16 @@ vcf_to_standered_ldclump = vcf_to_standard_ldclump
 
 
 def get_ld_partners(
-    chrom, pos, canonical_id, ld_file_path, r2_threshold, id_aliases=None
+    chrom,
+    pos,
+    canonical_id,
+    ld_file_path,
+    r2_threshold,
+    id_aliases=None,
+    log=None,
 ):
     id_aliases = id_aliases or {}
+    emit = log or print
     region = None
     try:
         self_snp = pl.DataFrame(
@@ -282,18 +292,18 @@ def get_ld_partners(
                 "r2": [1.0],
             }
         )
-        start = max(1, pos - 1_000_000)
-        end = pos + 1_000_000
-        region = f"{chrom}:{start}-{end}"
+        region = f"{chrom}:{pos}-{pos}"
         result = subprocess.run(
             ["tabix", ld_file_path, region], capture_output=True, text=True, check=True
         )
         if not result.stdout.strip():
-            print(
+            emit(
                 "[WARNING] [STAGE: 04 LD retrieval] "
-                "[FUNCTION: get_ld_partners] No LD rows returned; "
-                "treating the variant as self-only "
-                f"| chromosome={chrom} | variant={canonical_id} "
+                "[FUNCTION: get_ld_partners] No LD rows were returned for the "
+                "exact index-SNP position "
+                f"| chromosome={chrom} | position={pos} "
+                f"| expected_id={canonical_id} | ld_rows_returned=0 "
+                "| action=self-only | consequence=no LD partners assigned "
                 f"| ld_file={ld_file_path} | region={region}"
             )
             return self_snp
@@ -318,19 +328,34 @@ def get_ld_partners(
             pl.Series("match_a", [resolve_id(x) for x in ld_df["snp_a"]]),
             pl.Series("match_b", [resolve_id(x) for x in ld_df["snp_b"]]),
         )
-        filtered = ld_df.filter(
-            (pl.col("r2") >= r2_threshold)
-            & (
-                (pl.col("match_a") == canonical_id)
-                | (pl.col("match_b") == canonical_id)
-            )
+        matched = ld_df.filter(
+            (pl.col("match_a") == canonical_id)
+            | (pl.col("match_b") == canonical_id)
         )
-        if filtered.is_empty():
-            print(
+        if matched.is_empty():
+            observed_index_ids = (
+                ld_df["snp_a"].unique(maintain_order=True).head(5).to_list()
+            )
+            emit(
                 "[WARNING] [STAGE: 04 LD retrieval] "
-                "[FUNCTION: get_ld_partners] LD rows were returned, but none "
-                "matched the canonical/input variant ID; treating the variant "
-                f"as self-only | chromosome={chrom} | variant={canonical_id} "
+                "[FUNCTION: get_ld_partners] Reference ID/allele mismatch at "
+                "the queried index-SNP position "
+                f"| chromosome={chrom} | position={pos} "
+                f"| expected_id={canonical_id} | ld_rows_returned={ld_df.height} "
+                f"| observed_index_ids={observed_index_ids} | action=self-only "
+                "| consequence=no LD partners assigned "
+                f"| ld_file={ld_file_path} | region={region}"
+            )
+        filtered = matched.filter(pl.col("r2") >= r2_threshold)
+        if not matched.is_empty() and filtered.is_empty():
+            emit(
+                "[INFO] [STAGE: 04 LD retrieval] "
+                "[FUNCTION: get_ld_partners] The index SNP matched the LD "
+                "reference, but no partners passed the r2 threshold "
+                f"| chromosome={chrom} | position={pos} "
+                f"| expected_id={canonical_id} | matched_ld_rows={matched.height} "
+                f"| r2_threshold={r2_threshold} | action=self-only "
+                "| consequence=no LD partners assigned "
                 f"| ld_file={ld_file_path} | region={region}"
             )
         partners = filtered.select(
@@ -395,14 +420,26 @@ def get_ld_partners(
 
 
 def find_ind_sig_snps(
-    chr_df, ld_path, lead_p_threshold, r2_clump_threshold, n_threads=1
+    chr_df,
+    ld_path,
+    lead_p_threshold,
+    r2_clump_threshold,
+    n_threads=1,
+    log=None,
 ):
+    emit = log or print
     remaining_leads = chr_df.filter(pl.col("pcol") <= lead_p_threshold).sort("pcol")
     ind_sig_clumps = []
     id_aliases = build_id_aliases(chr_df)
     chrom = chr_df.select(pl.col("chrcol").first()).item()
-    print(f"[CHR {chrom}] Independent variant detection started.")
+    emit(
+        "[INFO] [STAGE: 05 independent SNP clumping] "
+        "[FUNCTION: find_ind_sig_snps] Started "
+        f"| chromosome={chrom} | significance_threshold={lead_p_threshold} "
+        f"| significant_variants={remaining_leads.height}"
+    )
     while not remaining_leads.is_empty():
+        variants_before = remaining_leads.height
         top_snp = remaining_leads.row(0, named=True)
         sid = top_snp["uniq_id"]
         partners = get_ld_partners(
@@ -412,6 +449,7 @@ def find_ind_sig_snps(
             ld_path,
             r2_clump_threshold,
             id_aliases,
+            log=emit,
         )
         members = (
             partners.join(chr_df, on="uniq_id", how="left")
@@ -440,20 +478,43 @@ def find_ind_sig_snps(
         # to more than one independent significant SNP.
         partner_ids = partners["uniq_id"].to_list()
         remaining_leads = remaining_leads.filter(~pl.col("uniq_id").is_in(partner_ids))
-        print(f"[CHR {chrom}] Variants remaining: {remaining_leads.height}")
-    print(f"[CHR {chrom}] Independent variant detection completed.")
+        variants_removed = variants_before - remaining_leads.height
+        emit(
+            "[INFO] [STAGE: 05 independent SNP clumping] "
+            "[FUNCTION: find_ind_sig_snps] Index SNP processed "
+            f"| chromosome={chrom} | selected_variant={sid} "
+            f"| selected_p={top_snp['pcol']} "
+            f"| significant_variants_removed={variants_removed} "
+            f"| significant_variants_remaining={remaining_leads.height}"
+        )
+    emit(
+        "[INFO] [STAGE: 05 independent SNP clumping] "
+        "[FUNCTION: find_ind_sig_snps] Completed "
+        f"| chromosome={chrom} "
+        f"| independent_significant_snps={len(ind_sig_clumps)}"
+    )
     return pl.concat(ind_sig_clumps) if ind_sig_clumps else pl.DataFrame()
 
 
-def find_lead_snps(ind_sig_df, ld_path, r2_lead_threshold, n_threads=1):
+def find_lead_snps(
+    ind_sig_df, ld_path, r2_lead_threshold, n_threads=1, log=None
+):
     if ind_sig_df.is_empty():
         return pl.DataFrame()
+    emit = log or print
     ind_sig_heads = ind_sig_df.filter(
         pl.col("uniq_id") == pl.col("ind_sig_SNP_id")
     ).sort("pcol")
+    chrom = ind_sig_heads.select(pl.col("chrcol").first()).item()
     lead_clusters = []
     remaining = ind_sig_heads
     id_aliases = build_id_aliases(ind_sig_heads)
+    emit(
+        "[INFO] [STAGE: 06 lead SNP clumping] "
+        "[FUNCTION: find_lead_snps] Started "
+        f"| chromosome={chrom} | r2_threshold={r2_lead_threshold} "
+        f"| independent_significant_snps={remaining.height}"
+    )
     while not remaining.is_empty():
         top_row = remaining.row(0, named=True)
         lid = top_row["uniq_id"]
@@ -464,6 +525,7 @@ def find_lead_snps(ind_sig_df, ld_path, r2_lead_threshold, n_threads=1):
             ld_path,
             r2_lead_threshold,
             id_aliases,
+            log=emit,
         ).select("uniq_id", pl.col("r2").alias("r2_with_Lead"))
         members = remaining.join(partners, on="uniq_id", how="inner").with_columns(
             pl.lit(lid).alias("lead_SNP_id")
@@ -471,6 +533,18 @@ def find_lead_snps(ind_sig_df, ld_path, r2_lead_threshold, n_threads=1):
         lead_clusters.append(members)
         assigned_ids = members["uniq_id"].to_list()
         remaining = remaining.filter(~pl.col("uniq_id").is_in(assigned_ids))
+        emit(
+            "[INFO] [STAGE: 06 lead SNP clumping] "
+            "[FUNCTION: find_lead_snps] Lead SNP processed "
+            f"| chromosome={chrom} | selected_variant={lid} "
+            f"| independent_snps_assigned={members.height} "
+            f"| independent_snps_remaining={remaining.height}"
+        )
+    emit(
+        "[INFO] [STAGE: 06 lead SNP clumping] "
+        "[FUNCTION: find_lead_snps] Completed "
+        f"| chromosome={chrom} | lead_snps={len(lead_clusters)}"
+    )
     return pl.concat(lead_clusters) if lead_clusters else pl.DataFrame()
 
 
@@ -775,71 +849,108 @@ def process_chromosome(
     Worker function to process a single chromosome.
     Now accepts n_threads to pass down to sub-functions.
     """
+    messages = []
+    emit = messages.append
     ld_path = os.path.join(ld_folder, f"{pop}_chr{chrom}.ld.gz")
     if not os.path.exists(ld_path):
-        raise PipelineStageError(
+        error = PipelineStageError(
             "04 LD reference validation",
             "process_chromosome",
             "LD reference file was not found",
             chromosome=chrom,
             ld_file=ld_path,
         )
+        error.chromosome_logs = messages
+        raise error
     # Step A: Find Independent Significant SNPs (Passing n_threads)
     try:
-        ind_sig = find_ind_sig_snps(gwas_subset, ld_path, lead_p, r2_clump)
-    except PipelineStageError:
+        ind_sig = find_ind_sig_snps(
+            gwas_subset, ld_path, lead_p, r2_clump, log=emit
+        )
+    except PipelineStageError as error:
+        error.chromosome_logs = messages
         raise
     except Exception as error:
-        raise function_error(
+        wrapped_error = function_error(
             "05 independent SNP clumping",
             "find_ind_sig_snps",
             error,
             chromosome=chrom,
             ld_file=ld_path,
-        ) from error
-    if ind_sig.is_empty():
-        print(
-            "[INFO] [STAGE: 05 independent SNP clumping] "
-            "[FUNCTION: find_ind_sig_snps] No independent significant SNPs found "
-            f"| chromosome={chrom} | ld_file={ld_path}"
         )
-        return None
+        wrapped_error.chromosome_logs = messages
+        raise wrapped_error from error
+    if ind_sig.is_empty():
+        emit(
+            "[INFO] [STAGE: 05 independent SNP clumping] "
+            "[FUNCTION: process_chromosome] Chromosome skipped because no "
+            "variants passed the significance threshold "
+            f"| chromosome={chrom} | significance_threshold={lead_p} "
+            f"| significant_variants=0 | status=normal"
+        )
+        return {"chrom": chrom, "logs": messages}
     # Step B: Find Lead SNPs (Passing n_threads)
     try:
-        leads = find_lead_snps(ind_sig, ld_path, r2_lead, n_threads)
-    except PipelineStageError:
+        leads = find_lead_snps(
+            ind_sig, ld_path, r2_lead, n_threads, log=emit
+        )
+    except PipelineStageError as error:
+        error.chromosome_logs = messages
         raise
     except Exception as error:
-        raise function_error(
+        wrapped_error = function_error(
             "06 lead SNP clumping",
             "find_lead_snps",
             error,
             chromosome=chrom,
             ld_file=ld_path,
-        ) from error
-    if leads.is_empty():
-        print(
-            "[INFO] [STAGE: 06 lead SNP clumping] "
-            "[FUNCTION: find_lead_snps] No lead SNPs found "
-            f"| chromosome={chrom} | ld_file={ld_path}"
         )
-        return None
+        wrapped_error.chromosome_logs = messages
+        raise wrapped_error from error
+    if leads.is_empty():
+        emit(
+            "[INFO] [STAGE: 06 lead SNP clumping] "
+            "[FUNCTION: process_chromosome] Chromosome skipped because lead-SNP "
+            "clumping produced no variants "
+            f"| chromosome={chrom} | independent_significant_snps={ind_sig.height}"
+        )
+        return {"chrom": chrom, "logs": messages}
     # Step C: Define boundaries
+    emit(
+        "[INFO] [STAGE: 07 locus definition] "
+        "[FUNCTION: define_genomic_risk_loci] Started "
+        f"| chromosome={chrom} | merge_distance={merge_dist}"
+    )
     try:
         summ, hier, is_c, l_un, _ = define_genomic_risk_loci(
             ind_sig, leads, merge_dist, 1
         )
-    except PipelineStageError:
+    except PipelineStageError as error:
+        error.chromosome_logs = messages
         raise
     except Exception as error:
-        raise function_error(
+        wrapped_error = function_error(
             "07 locus definition",
             "define_genomic_risk_loci",
             error,
             chromosome=chrom,
             ld_file=ld_path,
-        ) from error
-    return {"summ": summ, "hier": hier, "is_c": is_c, "l_un": l_un, "chrom": chrom}
+        )
+        wrapped_error.chromosome_logs = messages
+        raise wrapped_error from error
+    emit(
+        "[INFO] [STAGE: 07 locus definition] "
+        "[FUNCTION: define_genomic_risk_loci] Completed "
+        f"| chromosome={chrom} | genomic_risk_loci={summ.height}"
+    )
+    return {
+        "summ": summ,
+        "hier": hier,
+        "is_c": is_c,
+        "l_un": l_un,
+        "chrom": chrom,
+        "logs": messages,
+    }
 
 
 def ld_clump_standard(
@@ -934,14 +1045,31 @@ def ld_clump_standard(
         ) from error
     # ---------------------------
     res_list = []
+    effective_workers = max(1, min(n_workers, len(balanced_chroms)))
     print(
-        f"[*] Docker-safe execution: Using ThreadPoolExecutor with {n_workers} workers."
+        "[*] Docker-safe execution: Using ThreadPoolExecutor "
+        f"| requested_threads={n_threads} | configured_workers={n_workers} "
+        f"| chromosomes_to_process={len(balanced_chroms)} "
+        f"| effective_workers={effective_workers}"
     )
+
+    def chromosome_sort_key(chrom):
+        chromosome = str(chrom).upper()
+        if chromosome.startswith("CHR"):
+            chromosome = chromosome[3:]
+        return (0, int(chromosome)) if chromosome.isdigit() else (1, chromosome)
+
+    def print_chromosome_block(chrom, messages):
+        print(f"\n===== CHROMOSOME {chrom} =====")
+        if messages:
+            print("\n".join(messages))
+        print(f"===== END CHROMOSOME {chrom} =====", flush=True)
+
     # 3. Concurrent Processing using Threads
     try:
-        with ThreadPoolExecutor(max_workers=n_workers) as executor:
+        with ThreadPoolExecutor(max_workers=effective_workers) as executor:
             futures = {
-                executor.submit(
+                chrom: executor.submit(
                     process_chromosome,
                     chrom,
                     gwas.filter(pl.col("chrcol") == chrom),
@@ -951,18 +1079,23 @@ def ld_clump_standard(
                     r2_clump,
                     r2_lead,
                     merge_dist,  # internal tool threads set to 1
-                ): chrom
+                )
                 for chrom in balanced_chroms
             }
-            for future in as_completed(futures):
+            for chrom in sorted(futures, key=chromosome_sort_key):
+                future = futures[chrom]
                 try:
                     result = future.result()
                     if result:
-                        res_list.append(result)
-                except PipelineStageError:
+                        print_chromosome_block(chrom, result.pop("logs", []))
+                        if "summ" in result:
+                            res_list.append(result)
+                except PipelineStageError as error:
+                    print_chromosome_block(
+                        chrom, getattr(error, "chromosome_logs", [])
+                    )
                     raise
                 except Exception as error:
-                    chrom = futures[future]
                     raise function_error(
                         "08 chromosome execution",
                         "process_chromosome",
@@ -980,7 +1113,12 @@ def ld_clump_standard(
         ) from error
     # 4. Final Aggregation
     if res_list:
-        # ... (rest of your aggregation logic remains the same)
+        print(
+            "[INFO] [STAGE: 09 result aggregation] "
+            "[FUNCTION: ld_clump_standard] Started "
+            f"| sample={sample_id} | chromosomes_with_loci={len(res_list)}"
+        )
+
         def chr_key(x):
             c = str(x["chrom"]).lower().replace("chr", "")
             return int(c) if c.isdigit() else 99
@@ -998,6 +1136,11 @@ def ld_clump_standard(
                         )
                     frames.append(r[key])
                 locus_counter += unique_count
+            print(
+                "[INFO] [STAGE: 09 result aggregation] "
+                "[FUNCTION: ld_clump_standard] Completed "
+                f"| sample={sample_id} | genomic_risk_loci={locus_counter - 1}"
+            )
         except Exception as error:
             raise function_error(
                 "09 result aggregation",
@@ -1029,6 +1172,12 @@ def ld_clump_standard(
                 ) from error
             try:
                 df.write_csv(output_file, separator="\t")
+                print(
+                    "[INFO] [STAGE: 10 output writing] "
+                    "[FUNCTION: ld_clump_standard] Output written "
+                    f"| result={key} | rows={df.height} "
+                    f"| output_file={output_file}"
+                )
             except Exception as error:
                 raise function_error(
                     "10 output writing",
@@ -1044,6 +1193,8 @@ def ld_clump_standard(
         }
     print(
         "[INFO] [STAGE: 09 result aggregation] [FUNCTION: ld_clump_standard] "
-        f"No genomic risk loci were produced | sample={sample_id}"
+        "No genomic risk loci were produced "
+        f"| sample={sample_id} | chromosomes_processed={len(balanced_chroms)} "
+        "| status=normal"
     )
     return None

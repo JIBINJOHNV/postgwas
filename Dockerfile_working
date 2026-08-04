@@ -158,6 +158,19 @@ COPY magma/magma /usr/local/bin/magma
 RUN chmod +x /usr/local/bin/magma
 
 # =====================================================================
+# Install SnpEff
+# =====================================================================
+WORKDIR /opt
+
+RUN wget https://snpeff-public.s3.amazonaws.com/versions/snpEff_latest_core.zip && \
+    unzip snpEff_latest_core.zip && \
+    rm snpEff_latest_core.zip && \
+    rm -rf /opt/snpEff/examples
+
+ENV SNPEFF_HOME=/opt/snpEff
+ENV PATH="${SNPEFF_HOME}:$PATH"
+
+# =====================================================================
 # Install PostGWAS (Keep R-related dependencies)
 # =====================================================================
 WORKDIR /opt/postgwas

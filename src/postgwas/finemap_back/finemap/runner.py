@@ -1,90 +1,37 @@
 import subprocess
+import shutil
 from pathlib import Path
 
-from postgwas.finemap.defaults import (
-    DEFAULT_BGEN_BITS,
-    DEFAULT_CREDIBLE_SET_COVERAGE,
-    DEFAULT_EXTERNAL_TOOL_THREADS,
-    DEFAULT_PLINK_MEMORY_MB,
-)
-
-def _run_logged(command, log_file, cwd=None):
-    """Run a command and retain stdout/stderr for a reproducible failure report."""
-    result = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
-    with Path(log_file).open("a") as handle:
-        handle.write("CMD: " + " ".join(map(str, command)) + "\n")
-        handle.write("--- STDOUT ---\n" + (result.stdout or ""))
-        handle.write("\n--- STDERR ---\n" + (result.stderr or ""))
-        handle.write(f"\nExit Code: {result.returncode}\n")
-    if result.returncode != 0:
-        raise RuntimeError(f"Command failed with exit code {result.returncode}; see {log_file}")
-    return result
-
-
-def run_plink_extraction(
-    bfile_prefix: str,
-    snp_file: Path,
-    out_prefix: Path,
-    plink_binary: str = "plink2",
-    plink_memory_mb: int = DEFAULT_PLINK_MEMORY_MB,
-):
-    """Run PLINK 2 extraction and verify all BED outputs.
-
-    ``plink_memory_mb`` is explicit and overrideable so the executed resource
-    limit is captured by the caller's run configuration.
-    """
-    log_file = out_prefix.with_suffix(".plink.log")
-    if log_file.exists():
-        log_file.unlink()
-    _run_logged([
-        str(plink_binary), "--bfile", str(bfile_prefix),
+def run_plink_extraction(bfile_prefix: str, snp_file: Path, out_prefix: Path):
+    """Runs PLINK2 to extract variants to BED format."""
+    subprocess.run([
+        "plink2", "--bfile", bfile_prefix,
         "--extract", str(snp_file),
         "--make-bed", "--out", str(out_prefix),
-        "--silent", "--memory", str(int(plink_memory_mb))
-    ], log_file)
-    for suffix in [".bed", ".bim", ".fam"]:
-        output = out_prefix.with_suffix(suffix)
-        if not output.is_file() or output.stat().st_size == 0:
-            raise RuntimeError(f"PLINK 2 did not create a usable {output.name}; see {log_file}")
+        "--silent", "--memory", "2000"
+    ], check=True, stdout=subprocess.DEVNULL)
 
 
-def run_plink_to_bgen(
-    bfile_prefix: Path,
-    out_prefix: Path,
-    plink_binary: str = "plink2",
-    bgen_bits: int = DEFAULT_BGEN_BITS,
-):
-    """Convert the reconciled PLINK BED files to BGEN v1.2."""
-    log_file = out_prefix.with_suffix(".plink.log")
-    if log_file.exists():
-        log_file.unlink()
-    _run_logged([
-        str(plink_binary), "--bfile", str(bfile_prefix),
-        "--export", "bgen-1.2", f"bits={int(bgen_bits)}",
+def run_plink_to_bgen(bfile_prefix: Path, out_prefix: Path):
+    """Converts PLINK BED to BGEN format (required for LDstore)."""
+    subprocess.run([
+        "plink2", "--bfile", str(bfile_prefix),
+        "--export", "bgen-1.2", "bits=8",
         "--out", str(out_prefix),
         "--silent"
-    ], log_file)
-    bgen_file = out_prefix.with_suffix(".bgen")
-    if not bgen_file.is_file() or bgen_file.stat().st_size == 0:
-        raise RuntimeError(f"PLINK 2 did not create a usable BGEN file; see {log_file}")
+    ], check=True, stdout=subprocess.DEVNULL)
 
 
 def run_bgen_indexing(bgen_file: Path):
     """Indexes BGEN file using bgenix."""
-    log_file = bgen_file.with_suffix(".bgenix.log")
-    if log_file.exists():
-        log_file.unlink()
-    _run_logged([
+    subprocess.run([
         "bgenix", "-g", str(bgen_file), "-index", "-clobber"
-    ], log_file)
-    bgi_file = Path(f"{bgen_file}.bgi")
-    if not bgi_file.is_file() or bgi_file.stat().st_size == 0:
-        raise RuntimeError(f"bgenix did not create a usable index; see {log_file}")
+    ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 
 
-def run_ldstore(master_file: Path, n_threads: int = DEFAULT_EXTERNAL_TOOL_THREADS):
+def run_ldstore(master_file: Path, n_threads: int = 1):
     """
     Runs LDstore to compute the LD matrix.
     Saves commands and logs to a file for debugging.
@@ -155,17 +102,11 @@ def run_ldstore(master_file: Path, n_threads: int = DEFAULT_EXTERNAL_TOOL_THREAD
         raise RuntimeError(f"LDstore (bcor-to-text) error detected. See log: {log_file}")
 
 
-def run_finemap_binary(
-    master_file: Path,
-    config: dict,
-    n_threads: int = DEFAULT_EXTERNAL_TOOL_THREADS,
-):
+def run_finemap_binary(master_file: Path, config: dict, n_threads: int = 1):
     """
     Runs the FINEMAP v1.4 binary.
     Saves command and logs to a file for debugging.
     """
-    if float(config["prob_cred_set"]) != DEFAULT_CREDIBLE_SET_COVERAGE:
-        raise ValueError("FINEMAP credible-set coverage must be exactly 0.95")
     master_path = Path(master_file).resolve()
     # Log file will be something like: locus_id.finemap.log
     log_file = master_path.with_suffix(".finemap.log")
